@@ -1,0 +1,632 @@
+/* ========= Config ========= */
+const SALES_UPLOAD_BASE_URL =
+  "https://script.google.com/macros/s/AKfycbyck6-dXBFcVuG_XtB4_DU4R2mJr_BBlhi5nZzANTUD-udJkjFKcf97dffjL7QW_zVp/exec";
+
+// AJUSTA ESTO: URL para devoluciones (puede ser otro script o el mismo con otra acción).
+const RETURNS_UPLOAD_BASE_URL =
+  "https://script.google.com/macros/s/AKfycbyck6-dXBFcVuG_XtB4_DU4R2mJr_BBlhi5nZzANTUD-udJkjFKcf97dffjL7QW_zVp/exec";
+
+const MODE_CONFIG = {
+  ventas: {
+    label: "Ventas",
+    uploadBaseUrl: SALES_UPLOAD_BASE_URL,
+    uploadParam: "producto",
+    // AJUSTA ESTO a tu endpoint real de lista de ventas:
+    listUrl: `${SALES_UPLOAD_BASE_URL}?accion=ventas`,
+  },
+  devoluciones: {
+    label: "Devoluciones",
+    uploadBaseUrl: RETURNS_UPLOAD_BASE_URL,
+    uploadParam: "producto",
+    // AJUSTA ESTO a tu endpoint real de lista de devoluciones:
+    listUrl: `${RETURNS_UPLOAD_BASE_URL}?accion=devoluciones`,
+  },
+};
+
+const STORAGE_MODE = "qr_mode_v1";
+const STORAGE_KEY_PREFIX = "qr_pending_uploads_v1";
+const STORAGE_LAST_SCAN_PREFIX = "qr_last_scan_v1";
+
+/* ========= DOM ========= */
+const el = {
+  netStatus: document.getElementById("netStatus"),
+  tabPendientes: document.getElementById("tabPendientes"),
+  tabVentas: document.getElementById("tabVentas"),
+  viewPendientes: document.getElementById("viewPendientes"),
+  viewVentas: document.getElementById("viewVentas"),
+  btnOpenScanner: document.getElementById("btnOpenScanner"),
+  btnRetryAll: document.getElementById("btnRetryAll"),
+  pendingList: document.getElementById("pendingList"),
+  pendingEmpty: document.getElementById("pendingEmpty"),
+  statPending: document.getElementById("statPending"),
+  statLastScan: document.getElementById("statLastScan"),
+  btnClearLocal: document.getElementById("btnClearLocal"),
+  btnRefreshVentas: document.getElementById("btnRefreshVentas"),
+  ventasNotice: document.getElementById("ventasNotice"),
+  ventasBody: document.getElementById("ventasBody"),
+  pendingTitle: document.getElementById("pendingTitle"),
+  listTitle: document.getElementById("listTitle"),
+  modeVentas: document.getElementById("modeVentas"),
+  modeDevoluciones: document.getElementById("modeDevoluciones"),
+
+  scannerModal: document.getElementById("scannerModal"),
+  scannerBackdrop: document.getElementById("scannerBackdrop"),
+  btnCloseScanner: document.getElementById("btnCloseScanner"),
+  btnStopCamera: document.getElementById("btnStopCamera"),
+  btnToggleFlash: document.getElementById("btnToggleFlash"),
+  scannerHelp: document.getElementById("scannerHelp"),
+  video: document.getElementById("video"),
+
+  toast: document.getElementById("toast"),
+};
+
+/* ========= State ========= */
+let mode = loadMode();
+let pending = loadPending();
+let stream = null;
+let detector = null;
+let scanning = false;
+let scanLoopHandle = 0;
+let lastDetectAt = 0;
+let torchOn = false;
+let scanCanvas = null;
+let scanCtx = null;
+
+/* ========= Utils ========= */
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function formatTime(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString();
+  } catch {
+    return iso || "—";
+  }
+}
+
+function toast(msg, variant = "info") {
+  el.toast.textContent = msg;
+  el.toast.dataset.variant = variant;
+  el.toast.classList.add("toast--show");
+  window.clearTimeout(toast._t);
+  toast._t = window.setTimeout(() => el.toast.classList.remove("toast--show"), 2600);
+}
+
+function setNetStatus() {
+  const online = navigator.onLine;
+  el.netStatus.textContent = online ? "Con internet" : "Sin internet (modo offline)";
+}
+
+function safeJsonParse(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/* ========= Storage ========= */
+function loadPending() {
+  const raw = localStorage.getItem(storageKeyForPending());
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePending() {
+  localStorage.setItem(storageKeyForPending(), JSON.stringify(pending));
+}
+
+function setLastScan(code) {
+  localStorage.setItem(storageKeyForLastScan(), code);
+}
+
+function getLastScan() {
+  return localStorage.getItem(storageKeyForLastScan()) || "";
+}
+
+function storageKeyForPending() {
+  return `${STORAGE_KEY_PREFIX}:${mode}`;
+}
+
+function storageKeyForLastScan() {
+  return `${STORAGE_LAST_SCAN_PREFIX}:${mode}`;
+}
+
+function loadMode() {
+  const m = localStorage.getItem(STORAGE_MODE);
+  return m === "devoluciones" ? "devoluciones" : "ventas";
+}
+
+function saveMode() {
+  localStorage.setItem(STORAGE_MODE, mode);
+}
+
+function modeLabel() {
+  return MODE_CONFIG[mode]?.label || "Ventas";
+}
+
+/* ========= Views ========= */
+function setActiveTab(tab) {
+  const isPend = tab === "pendientes";
+  el.tabPendientes.classList.toggle("tab--active", isPend);
+  el.tabVentas.classList.toggle("tab--active", !isPend);
+  el.viewPendientes.classList.toggle("view--active", isPend);
+  el.viewVentas.classList.toggle("view--active", !isPend);
+}
+
+function renderPending() {
+  if (el.pendingTitle) el.pendingTitle.textContent = `Pendientes (${modeLabel()})`;
+  el.statPending.textContent = String(pending.length);
+  const last = getLastScan();
+  el.statLastScan.textContent = last ? last : "—";
+
+  el.pendingList.innerHTML = "";
+  el.pendingEmpty.style.display = pending.length ? "none" : "block";
+  el.btnRetryAll.disabled = pending.length === 0 || !navigator.onLine;
+
+  for (const item of pending) {
+    const row = document.createElement("div");
+    row.className = "item";
+    row.setAttribute("role", "listitem");
+
+    const left = document.createElement("div");
+    left.className = "item__left";
+
+    const code = document.createElement("div");
+    code.className = "item__code";
+    code.textContent = item.code;
+
+    const meta = document.createElement("div");
+    meta.className = "item__meta";
+
+    const pill1 = document.createElement("span");
+    pill1.className = "pill pill--warn";
+    pill1.textContent = `Intentos: ${item.attempts || 0}`;
+
+    const pill2 = document.createElement("span");
+    pill2.className = "pill";
+    pill2.textContent = `Creado: ${formatTime(item.createdAt)}`;
+
+    meta.appendChild(pill1);
+    meta.appendChild(pill2);
+
+    if (item.lastAttemptAt) {
+      const pill3 = document.createElement("span");
+      pill3.className = "pill";
+      pill3.textContent = `Último: ${formatTime(item.lastAttemptAt)}`;
+      meta.appendChild(pill3);
+    }
+
+    left.appendChild(code);
+    left.appendChild(meta);
+
+    const actions = document.createElement("div");
+    actions.className = "item__actions";
+
+    const btnRetry = document.createElement("button");
+    btnRetry.className = "btn btn--ghost";
+    btnRetry.type = "button";
+    btnRetry.textContent = "Reintentar";
+    btnRetry.disabled = !navigator.onLine;
+    btnRetry.addEventListener("click", async () => {
+      await retryOne(item.code);
+    });
+
+    const btnRemove = document.createElement("button");
+    btnRemove.className = "btn btn--danger";
+    btnRemove.type = "button";
+    btnRemove.textContent = "Quitar";
+    btnRemove.addEventListener("click", () => {
+      pending = pending.filter((p) => p.code !== item.code);
+      savePending();
+      renderPending();
+      toast("Quitado de pendientes.");
+    });
+
+    actions.appendChild(btnRetry);
+    actions.appendChild(btnRemove);
+
+    row.appendChild(left);
+    row.appendChild(actions);
+    el.pendingList.appendChild(row);
+  }
+}
+
+/* ========= Upload ========= */
+function buildUploadUrl(code) {
+  const cfg = MODE_CONFIG[mode];
+  const u = new URL(cfg.uploadBaseUrl);
+  u.searchParams.set(cfg.uploadParam, code);
+  return u.toString();
+}
+
+async function uploadCode(code) {
+  const url = buildUploadUrl(code);
+  const res = await fetch(url, {
+    method: "GET",
+    cache: "no-store",
+  });
+  const text = await res.text();
+  const ok = res.ok && String(text).trim().toUpperCase().includes("OK");
+  return { ok, status: res.status, text };
+}
+
+function addPending(code) {
+  const exists = pending.some((p) => p.code === code);
+  if (exists) return false;
+
+  pending.unshift({
+    code,
+    createdAt: nowIso(),
+    lastAttemptAt: null,
+    attempts: 0,
+  });
+  savePending();
+  return true;
+}
+
+async function processScannedCode(code) {
+  const cleaned = String(code || "").trim();
+  if (!cleaned) {
+    toast("QR vacío o inválido.", "bad");
+    return;
+  }
+
+  setLastScan(cleaned);
+
+  // Si no hay internet, se guarda en localStorage.
+  if (!navigator.onLine) {
+    const added = addPending(cleaned);
+    renderPending();
+    toast(added ? "Guardado sin internet (pendiente)." : "Ya estaba en pendientes.");
+    return;
+  }
+
+  // Con internet: intenta subir.
+  try {
+    toast("Subiendo…");
+    const out = await uploadCode(cleaned);
+    if (out.ok) {
+      toast("Subido OK.");
+      // Si estaba en pendientes por algún motivo, lo quitamos.
+      pending = pending.filter((p) => p.code !== cleaned);
+      savePending();
+      renderPending();
+    } else {
+      addPending(cleaned);
+      renderPending();
+      toast(`No se pudo subir (respuesta: ${String(out.text).trim().slice(0, 60) || out.status}). Guardado pendiente.`, "warn");
+    }
+  } catch (e) {
+    addPending(cleaned);
+    renderPending();
+    toast("Error de red. Guardado pendiente.", "warn");
+  }
+}
+
+async function retryOne(code) {
+  if (!navigator.onLine) {
+    toast("No hay internet.", "warn");
+    return;
+  }
+
+  const item = pending.find((p) => p.code === code);
+  if (!item) return;
+  item.attempts = (item.attempts || 0) + 1;
+  item.lastAttemptAt = nowIso();
+  savePending();
+  renderPending();
+
+  try {
+    toast("Reintentando…");
+    const out = await uploadCode(code);
+    if (out.ok) {
+      pending = pending.filter((p) => p.code !== code);
+      savePending();
+      renderPending();
+      toast("Subido OK.");
+    } else {
+      toast(`Falló (respuesta: ${String(out.text).trim().slice(0, 60) || out.status}).`, "warn");
+    }
+  } catch {
+    toast("Error de red al reintentar.", "warn");
+  }
+}
+
+async function retryAll() {
+  if (!navigator.onLine) {
+    toast("No hay internet.", "warn");
+    return;
+  }
+  if (!pending.length) return;
+
+  // Copia para evitar problemas si vamos quitando elementos.
+  const codes = pending.map((p) => p.code);
+  for (const c of codes) {
+    // Pequeña pausa para que la UI se sienta viva y no dispare demasiadas requests.
+    // eslint-disable-next-line no-await-in-loop
+    await retryOne(c);
+  }
+}
+
+/* ========= Scanner (BarcodeDetector) ========= */
+function barcodeDetectorSupported() {
+  return "BarcodeDetector" in window;
+}
+
+function getDetector() {
+  if (!barcodeDetectorSupported()) return null;
+  if (!detector) {
+    detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+  }
+  return detector;
+}
+
+async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("getUserMedia no soportado");
+  }
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: {
+      facingMode: { ideal: "environment" },
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+    },
+  });
+  el.video.srcObject = stream;
+  await el.video.play();
+}
+
+function stopCamera() {
+  scanning = false;
+  if (scanLoopHandle) cancelAnimationFrame(scanLoopHandle);
+  scanLoopHandle = 0;
+  lastDetectAt = 0;
+  scanCanvas = null;
+  scanCtx = null;
+
+  if (stream) {
+    for (const t of stream.getTracks()) t.stop();
+  }
+  stream = null;
+  el.video.srcObject = null;
+  torchOn = false;
+  el.btnToggleFlash.disabled = true;
+  el.btnToggleFlash.textContent = "Flash";
+}
+
+async function setTorch(on) {
+  if (!stream) return;
+  const track = stream.getVideoTracks()[0];
+  if (!track) return;
+  const caps = track.getCapabilities?.();
+  if (!caps?.torch) return;
+
+  await track.applyConstraints({ advanced: [{ torch: !!on }] });
+  torchOn = !!on;
+  el.btnToggleFlash.textContent = torchOn ? "Flash: ON" : "Flash";
+}
+
+function enableTorchButtonIfPossible() {
+  if (!stream) return;
+  const track = stream.getVideoTracks()[0];
+  const caps = track?.getCapabilities?.();
+  const canTorch = !!caps?.torch;
+  el.btnToggleFlash.disabled = !canTorch;
+}
+
+async function scanLoop() {
+  if (!scanning) return;
+
+  const det = getDetector();
+  if (!det) return;
+
+  const video = el.video;
+  const w = video.videoWidth || 0;
+  const h = video.videoHeight || 0;
+  if (!w || !h) {
+    scanLoopHandle = requestAnimationFrame(scanLoop);
+    return;
+  }
+
+  const now = performance.now();
+  if (now - lastDetectAt < 180) {
+    scanLoopHandle = requestAnimationFrame(scanLoop);
+    return;
+  }
+  lastDetectAt = now;
+
+  if (!scanCanvas) {
+    scanCanvas = document.createElement("canvas");
+    scanCtx = scanCanvas.getContext("2d", { willReadFrequently: true });
+  }
+  if (scanCanvas.width !== w) scanCanvas.width = w;
+  if (scanCanvas.height !== h) scanCanvas.height = h;
+  scanCtx.drawImage(video, 0, 0, w, h);
+
+  try {
+    const codes = await det.detect(scanCanvas);
+    if (codes && codes.length) {
+      const raw = codes[0]?.rawValue || "";
+      scanning = false;
+      closeScanner();
+      await processScannedCode(raw);
+      return;
+    }
+  } catch (e) {
+    // Algunos navegadores pueden fallar temporalmente. Seguimos intentando.
+  }
+
+  scanLoopHandle = requestAnimationFrame(scanLoop);
+}
+
+async function openScanner() {
+  el.scannerModal.classList.add("modal--open");
+  el.scannerModal.setAttribute("aria-hidden", "false");
+
+  if (!barcodeDetectorSupported()) {
+    el.scannerHelp.textContent =
+      "Tu navegador no soporta escaneo nativo (BarcodeDetector). Prueba con Chrome/Edge en Android o un navegador moderno.";
+    toast("Escáner no soportado en este navegador.", "warn");
+    return;
+  }
+
+  try {
+    el.scannerHelp.textContent = "Iniciando cámara…";
+    await startCamera();
+    enableTorchButtonIfPossible();
+    el.scannerHelp.textContent = "Apunta al código QR dentro del recuadro.";
+    scanning = true;
+    scanLoopHandle = requestAnimationFrame(scanLoop);
+  } catch (e) {
+    el.scannerHelp.textContent = "No se pudo abrir la cámara. Revisa permisos.";
+    toast("No se pudo abrir la cámara.", "bad");
+    stopCamera();
+  }
+}
+
+function closeScanner() {
+  stopCamera();
+  el.scannerModal.classList.remove("modal--open");
+  el.scannerModal.setAttribute("aria-hidden", "true");
+}
+
+/* ========= Ventas ========= */
+async function loadVentas() {
+  if (!navigator.onLine) {
+    el.ventasNotice.textContent = `Sin internet. Conéctate para ver ${modeLabel().toLowerCase()}.`;
+    el.ventasBody.innerHTML = "";
+    return;
+  }
+
+  const url = MODE_CONFIG[mode].listUrl;
+  if (el.listTitle) el.listTitle.textContent = `Lista de ${modeLabel()}`;
+  el.ventasNotice.textContent = `Cargando desde: ${url}`;
+  el.ventasBody.innerHTML = "";
+
+  try {
+    const res = await fetch(url, { method: "GET", cache: "no-store" });
+    const text = await res.text();
+    const maybeJson = safeJsonParse(text);
+
+    if (maybeJson) {
+      el.ventasBody.innerHTML = `<pre>${escapeHtml(JSON.stringify(maybeJson, null, 2))}</pre>`;
+    } else {
+      el.ventasBody.innerHTML = `<pre>${escapeHtml(text)}</pre>`;
+    }
+
+    if (!res.ok) {
+      el.ventasNotice.textContent = `Respuesta HTTP ${res.status}. Revisa tu endpoint de ventas.`;
+    } else {
+      el.ventasNotice.textContent = `${modeLabel()} cargadas.`;
+    }
+  } catch {
+    el.ventasNotice.textContent = `Error cargando ${modeLabel().toLowerCase()} (red/CORS/endpoint).`;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+/* ========= Events ========= */
+el.tabPendientes.addEventListener("click", () => setActiveTab("pendientes"));
+el.tabVentas.addEventListener("click", async () => {
+  setActiveTab("ventas");
+  await loadVentas();
+});
+
+function applyModeToUI() {
+  const isSales = mode === "ventas";
+  if (el.modeVentas) el.modeVentas.classList.toggle("mode--active", isSales);
+  if (el.modeDevoluciones) el.modeDevoluciones.classList.toggle("mode--active", !isSales);
+
+  // Tab label dinámico para la lista online
+  if (el.tabVentas) el.tabVentas.textContent = `Ver lista de ${modeLabel()}`;
+
+  // Títulos dinámicos
+  if (el.pendingTitle) el.pendingTitle.textContent = `Pendientes (${modeLabel()})`;
+  if (el.listTitle) el.listTitle.textContent = `Lista de ${modeLabel()}`;
+}
+
+function setMode(nextMode) {
+  const nm = nextMode === "devoluciones" ? "devoluciones" : "ventas";
+  if (mode === nm) return;
+  mode = nm;
+  saveMode();
+  pending = loadPending();
+  applyModeToUI();
+  renderPending();
+  if (el.viewVentas.classList.contains("view--active")) {
+    loadVentas();
+  }
+}
+
+el.modeVentas?.addEventListener("click", () => setMode("ventas"));
+el.modeDevoluciones?.addEventListener("click", () => setMode("devoluciones"));
+
+el.btnOpenScanner.addEventListener("click", openScanner);
+el.scannerBackdrop.addEventListener("click", closeScanner);
+el.btnCloseScanner.addEventListener("click", closeScanner);
+el.btnStopCamera.addEventListener("click", closeScanner);
+
+el.btnToggleFlash.addEventListener("click", async () => {
+  try {
+    await setTorch(!torchOn);
+  } catch {
+    toast("No se pudo activar flash.", "warn");
+  }
+});
+
+el.btnRetryAll.addEventListener("click", retryAll);
+
+el.btnClearLocal.addEventListener("click", () => {
+  const ok = confirm("¿Seguro? Esto borra la lista de pendientes locales.");
+  if (!ok) return;
+  pending = [];
+  savePending();
+  renderPending();
+  toast("Pendientes limpiados.");
+});
+
+el.btnRefreshVentas.addEventListener("click", loadVentas);
+
+window.addEventListener("online", () => {
+  setNetStatus();
+  renderPending();
+  toast("Volviste a tener internet.");
+});
+window.addEventListener("offline", () => {
+  setNetStatus();
+  renderPending();
+  toast("Sin internet (modo offline).", "warn");
+});
+
+/* ========= Init ========= */
+function registerSW() {
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.register("./service-worker.js", { scope: "./" }).catch(() => {
+    // ignora
+  });
+}
+
+setNetStatus();
+applyModeToUI();
+pending = loadPending();
+renderPending();
+registerSW();
+
+

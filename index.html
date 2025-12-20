@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b1220" />
+    <title>QR Offline Uploader</title>
+    <meta name="description" content="Escanea QR, guarda pendientes sin internet y sincroniza cuando vuelva." />
+
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand__dot" aria-hidden="true"></div>
+          <div class="brand__text">
+            <div class="brand__title">QR Offline Uploader</div>
+            <div class="brand__sub" id="netStatus">Comprobando conexión…</div>
+          </div>
+        </div>
+
+        <div class="topbar__actions">
+          <button class="btn btn--primary" id="btnOpenScanner" type="button">
+            Escanear QR
+          </button>
+        </div>
+      </header>
+
+      <nav class="tabs" aria-label="Navegación principal">
+        <button class="tab tab--active" id="tabPendientes" type="button">Pendientes</button>
+        <button class="tab" id="tabVentas" type="button">Lista</button>
+      </nav>
+
+      <section class="modebar" aria-label="Modo">
+        <div class="modebar__inner">
+          <button class="mode mode--active" id="modeVentas" type="button">Ventas</button>
+          <button class="mode" id="modeDevoluciones" type="button">Devoluciones</button>
+        </div>
+      </section>
+
+      <main class="content">
+        <section id="viewPendientes" class="view view--active" aria-label="Pendientes a subir">
+          <div class="panel">
+            <div class="panel__header">
+              <div class="panel__title">
+                <h2 id="pendingTitle">Pendientes (Ventas)</h2>
+                <p>Escanea sin internet y sincroniza después.</p>
+              </div>
+              <div class="panel__actions">
+                <button class="btn btn--ghost" id="btnRetryAll" type="button">Reintentar todo</button>
+              </div>
+            </div>
+
+            <div class="stats">
+              <div class="stat">
+                <div class="stat__label">Pendientes</div>
+                <div class="stat__value" id="statPending">0</div>
+              </div>
+              <div class="stat">
+                <div class="stat__label">Último escaneo</div>
+                <div class="stat__value stat__value--mono" id="statLastScan">—</div>
+              </div>
+            </div>
+
+            <div class="list" id="pendingList" role="list"></div>
+
+            <div class="empty" id="pendingEmpty">
+              <div class="empty__card">
+                <div class="empty__title">No hay pendientes</div>
+                <div class="empty__desc">Presiona “Escanear QR” para agregar un código.</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="viewVentas" class="view" aria-label="Lista de ventas">
+          <div class="panel">
+            <div class="panel__header">
+              <div class="panel__title">
+                <h2 id="listTitle">Lista</h2>
+                <p>Esta vista solo funciona con internet.</p>
+              </div>
+              <div class="panel__actions">
+                <button class="btn btn--ghost" id="btnRefreshVentas" type="button">Actualizar</button>
+              </div>
+            </div>
+
+            <div class="notice" id="ventasNotice"></div>
+            <div class="ventas" id="ventasBody"></div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="footer__left">Hecho con HTML/CSS/JS (sin librerías)</div>
+        <div class="footer__right">
+          <button class="link" id="btnClearLocal" type="button" title="Borra pendientes locales">
+            Limpiar pendientes
+          </button>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Scanner Modal -->
+    <div class="modal" id="scannerModal" aria-hidden="true" role="dialog" aria-label="Escáner QR">
+      <div class="modal__backdrop" id="scannerBackdrop"></div>
+      <div class="modal__sheet">
+        <div class="modal__header">
+          <div class="modal__title">Escanear QR</div>
+          <button class="iconBtn" id="btnCloseScanner" type="button" aria-label="Cerrar">
+            ✕
+          </button>
+        </div>
+
+        <div class="scanner">
+          <div class="scanner__frame">
+            <video id="video" playsinline muted></video>
+            <div class="scanner__overlay" aria-hidden="true">
+              <div class="scanner__box"></div>
+            </div>
+          </div>
+
+          <div class="scanner__help" id="scannerHelp">
+            Apunta al código QR dentro del recuadro.
+          </div>
+
+          <div class="scanner__actions">
+            <button class="btn btn--ghost" id="btnToggleFlash" type="button" disabled>
+              Flash
+            </button>
+            <button class="btn btn--danger" id="btnStopCamera" type="button">Detener cámara</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>
+
+
