@@ -1,10 +1,10 @@
 /* ========= Config ========= */
 const SALES_UPLOAD_BASE_URL =
-  "https://script.google.com/macros/s/AKfycbzOh77o56ifMsAVuNteIgV3Gbb_sa51Z3atzJJ_oPxm45DpkRc8fjtCu1jFWTG5mznz/exec";
+  "https://script.google.com/macros/s/AKfycbx9Nq2wvWerwK5FCk8shLgfhzb7H1q9mtT4Bj5TtHzBv2qeI-mb68ScKBa_EM94JZJT/exec";
 
 // AJUSTA ESTO: URL para devoluciones (puede ser otro script o el mismo con otra acción).
 const RETURNS_UPLOAD_BASE_URL =
-  "https://script.google.com/macros/s/AKfycbzOh77o56ifMsAVuNteIgV3Gbb_sa51Z3atzJJ_oPxm45DpkRc8fjtCu1jFWTG5mznz/exec";
+  "https://script.google.com/macros/s/AKfycbx9Nq2wvWerwK5FCk8shLgfhzb7H1q9mtT4Bj5TtHzBv2qeI-mb68ScKBa_EM94JZJT/exec";
 
 const MODE_CONFIG = {
   ventas: {
