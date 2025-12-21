@@ -1,24 +1,24 @@
 /* ========= Config ========= */
 const SALES_UPLOAD_BASE_URL =
-  "https://script.google.com/macros/s/AKfycbyck6-dXBFcVuG_XtB4_DU4R2mJr_BBlhi5nZzANTUD-udJkjFKcf97dffjL7QW_zVp/exec";
+  "https://script.google.com/macros/s/AKfycbzOh77o56ifMsAVuNteIgV3Gbb_sa51Z3atzJJ_oPxm45DpkRc8fjtCu1jFWTG5mznz/exec";
 
 // AJUSTA ESTO: URL para devoluciones (puede ser otro script o el mismo con otra acción).
 const RETURNS_UPLOAD_BASE_URL =
-  "https://script.google.com/macros/s/AKfycbyck6-dXBFcVuG_XtB4_DU4R2mJr_BBlhi5nZzANTUD-udJkjFKcf97dffjL7QW_zVp/exec";
+  "https://script.google.com/macros/s/AKfycbzOh77o56ifMsAVuNteIgV3Gbb_sa51Z3atzJJ_oPxm45DpkRc8fjtCu1jFWTG5mznz/exec";
 
 const MODE_CONFIG = {
   ventas: {
     label: "Ventas",
     uploadBaseUrl: SALES_UPLOAD_BASE_URL,
     uploadParam: "producto",
-    // AJUSTA ESTO a tu endpoint real de lista de ventas:
+    // Nota: en algunos despliegues, /exec/ventas puede redirigir a login.
+    // Usamos query (?accion=ventas) para mantenerlo como una llamada pública y “limpia”.
     listUrl: `${SALES_UPLOAD_BASE_URL}?accion=ventas`,
   },
   devoluciones: {
     label: "Devoluciones",
     uploadBaseUrl: RETURNS_UPLOAD_BASE_URL,
     uploadParam: "producto",
-    // AJUSTA ESTO a tu endpoint real de lista de devoluciones:
     listUrl: `${RETURNS_UPLOAD_BASE_URL}?accion=devoluciones`,
   },
 };
@@ -105,6 +105,24 @@ function safeJsonParse(text) {
   } catch {
     return null;
   }
+}
+
+function parsePossiblyWrappedJson(text) {
+  const direct = safeJsonParse(text);
+  if (direct) return direct;
+
+  const s = String(text ?? "");
+  const start = s.indexOf("{");
+  const end = s.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    return safeJsonParse(s.slice(start, end + 1));
+  }
+  return null;
+}
+
+function looksLikeHtml(text) {
+  const s = String(text ?? "").trimStart();
+  return s.startsWith("<!doctype") || s.startsWith("<html") || s.startsWith("<HTML") || s.startsWith("<");
 }
 
 /* ========= Storage ========= */
@@ -509,27 +527,92 @@ async function loadVentas() {
 
   const url = MODE_CONFIG[mode].listUrl;
   if (el.listTitle) el.listTitle.textContent = `Lista de ${modeLabel()}`;
-  el.ventasNotice.textContent = `Cargando desde: ${url}`;
+  el.ventasNotice.textContent = `Cargando...`;
   el.ventasBody.innerHTML = "";
 
   try {
-    const res = await fetch(url, { method: "GET", cache: "no-store" });
+    // Petición con redirect: "follow" para manejar redirecciones 302 de Google Apps Script
+    const res = await fetch(url, {
+      redirect: "follow",
+    });
     const text = await res.text();
-    const maybeJson = safeJsonParse(text);
+    const maybeJson = parsePossiblyWrappedJson(text);
 
-    if (maybeJson) {
+    // Si el endpoint está privado, normalmente termina en HTML (login / moved temporarily)
+    // y no vamos a poder leer JSON desde aquí.
+    if (!maybeJson && (looksLikeHtml(text) || String(res.url || "").includes("accounts.google.com"))) {
+      el.ventasNotice.textContent =
+        `No se pudo leer JSON. El endpoint parece requerir inicio de sesión (respuesta HTML/redirección). ` +
+        `Solución: publica el Apps Script como Web App accesible para “Anyone”.`;
+      el.ventasBody.innerHTML =
+        `<div class="notice">` +
+        `<div style="margin-bottom: .5rem;">URL final: <span style="font-family: monospace;">${escapeHtml(res.url || url)}</span></div>` +
+        `<div style="margin-bottom: .5rem;">HTTP: ${escapeHtml(String(res.status))}</div>` +
+        `<div><a class="link" href="${escapeHtml(url)}" target="_blank" rel="noopener">Abrir endpoint en una pestaña</a></div>` +
+        `</div>` +
+        `<pre>${escapeHtml(String(text).slice(0, 1200))}</pre>`;
+      return;
+    }
+
+    if (maybeJson && maybeJson.data && Array.isArray(maybeJson.data)) {
+      const data = maybeJson.data;
+      el.ventasNotice.textContent = `${modeLabel()} cargadas. Total: ${maybeJson.total || data.length}`;
+      
+      if (data.length === 0) {
+        el.ventasBody.innerHTML = `<div class="empty"><div class="empty__card"><div class="empty__title">No hay ${modeLabel().toLowerCase()}</div><div class="empty__desc">No se encontraron registros.</div></div></div>`;
+        return;
+      }
+
+      // Crear tabla con los datos
+      let tableHtml = `
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+            <thead>
+              <tr style="background: rgba(255,255,255,0.05); border-bottom: 2px solid rgba(255,255,255,0.1);">
+                <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Código</th>
+                <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Producto</th>
+                <th style="padding: 0.75rem; text-align: right; font-weight: 600;">Cantidad</th>
+                <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Fecha</th>
+              </tr>
+            </thead>
+            <tbody>
+      `;
+
+      for (const row of data) {
+        const codigo = row[0] || "—";
+        const producto = row[1] || "—";
+        const cantidad = row[2] || 0;
+        const fecha = row[3] ? formatTime(row[3]) : "—";
+        
+        tableHtml += `
+          <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <td style="padding: 0.75rem; font-family: monospace;">${escapeHtml(String(codigo))}</td>
+            <td style="padding: 0.75rem;">${escapeHtml(String(producto))}</td>
+            <td style="padding: 0.75rem; text-align: right; font-weight: 500;">${escapeHtml(String(cantidad))}</td>
+            <td style="padding: 0.75rem; color: rgba(255,255,255,0.7); font-size: 0.9em;">${escapeHtml(String(fecha))}</td>
+          </tr>
+        `;
+      }
+
+      tableHtml += `
+            </tbody>
+          </table>
+        </div>
+      `;
+
+      el.ventasBody.innerHTML = tableHtml;
+    } else if (maybeJson) {
+      // Si no tiene la estructura esperada, mostrar el JSON completo
+      el.ventasNotice.textContent = `${modeLabel()} cargadas (formato inesperado).`;
       el.ventasBody.innerHTML = `<pre>${escapeHtml(JSON.stringify(maybeJson, null, 2))}</pre>`;
     } else {
+      // Si no es JSON válido, mostrar el texto plano
+      el.ventasNotice.textContent = `Respuesta recibida (no es JSON válido).`;
       el.ventasBody.innerHTML = `<pre>${escapeHtml(text)}</pre>`;
     }
-
-    if (!res.ok) {
-      el.ventasNotice.textContent = `Respuesta HTTP ${res.status}. Revisa tu endpoint de ventas.`;
-    } else {
-      el.ventasNotice.textContent = `${modeLabel()} cargadas.`;
-    }
-  } catch {
+  } catch (err) {
     el.ventasNotice.textContent = `Error cargando ${modeLabel().toLowerCase()} (red/CORS/endpoint).`;
+    el.ventasBody.innerHTML = `<pre style="color: #ff6b6b;">${escapeHtml(String(err))}</pre>`;
   }
 }
 
