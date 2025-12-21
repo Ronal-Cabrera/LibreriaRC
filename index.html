@@ -136,6 +136,40 @@
       </div>
     </div>
 
+    <!-- Cantidad Modal -->
+    <div class="modal" id="qtyModal" aria-hidden="true" role="dialog" aria-label="Cantidad">
+      <div class="modal__backdrop" id="qtyBackdrop"></div>
+      <div class="modal__sheet" style="max-width: 520px;">
+        <div class="modal__header">
+          <div class="modal__title">Cantidad</div>
+          <button class="iconBtn" id="btnCloseQty" type="button" aria-label="Cerrar">✕</button>
+        </div>
+
+        <div style="padding: 14px 16px;">
+          <div style="color: var(--muted); font-size: 13px; margin-bottom: 10px;">
+            Código escaneado:
+            <span id="qtyCode" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color: var(--text); font-weight: 800;"></span>
+          </div>
+
+          <label for="qtyInput" style="display:block; font-weight: 800; margin-bottom: 8px;">Cantidad</label>
+          <input
+            id="qtyInput"
+            type="number"
+            inputmode="numeric"
+            min="1"
+            step="1"
+            placeholder="Ej: 1"
+            style="width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(0,0,0,.16); color: var(--text); font-weight: 800;"
+          />
+
+          <div style="display:flex; gap: 10px; justify-content:flex-end; margin-top: 14px; flex-wrap: wrap;">
+            <button class="btn btn--ghost" id="btnQtyCancel" type="button">Cancelar</button>
+            <button class="btn btn--primary" id="btnQtySave" type="button">Guardar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script src="./app.js" defer></script>

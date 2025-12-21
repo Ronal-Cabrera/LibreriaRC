@@ -10,7 +10,7 @@ const MODE_CONFIG = {
   ventas: {
     label: "Ventas",
     uploadBaseUrl: SALES_UPLOAD_BASE_URL,
-    uploadParam: "producto",
+    uploadAction: "vender",
     // Nota: en algunos despliegues, /exec/ventas puede redirigir a login.
     // Usamos query (?accion=ventas) para mantenerlo como una llamada pública y “limpia”.
     listUrl: `${SALES_UPLOAD_BASE_URL}?accion=ventas`,
@@ -18,7 +18,7 @@ const MODE_CONFIG = {
   devoluciones: {
     label: "Devoluciones",
     uploadBaseUrl: RETURNS_UPLOAD_BASE_URL,
-    uploadParam: "producto",
+    uploadAction: "devolver",
     listUrl: `${RETURNS_UPLOAD_BASE_URL}?accion=devoluciones`,
   },
 };
@@ -57,6 +57,14 @@ const el = {
   scannerHelp: document.getElementById("scannerHelp"),
   video: document.getElementById("video"),
 
+  qtyModal: document.getElementById("qtyModal"),
+  qtyBackdrop: document.getElementById("qtyBackdrop"),
+  btnCloseQty: document.getElementById("btnCloseQty"),
+  btnQtyCancel: document.getElementById("btnQtyCancel"),
+  btnQtySave: document.getElementById("btnQtySave"),
+  qtyInput: document.getElementById("qtyInput"),
+  qtyCode: document.getElementById("qtyCode"),
+
   toast: document.getElementById("toast"),
 };
 
@@ -75,6 +83,32 @@ let scanCtx = null;
 /* ========= Utils ========= */
 function nowIso() {
   return new Date().toISOString();
+}
+
+function nowIsoGuatemala() {
+  // Guatemala: America/Guatemala (UTC-06, sin DST)
+  const d = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Guatemala",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+
+  const get = (t) => parts.find((p) => p.type === t)?.value || "";
+  const yyyy = get("year");
+  const mm = get("month");
+  const dd = get("day");
+  const HH = get("hour");
+  const MM = get("minute");
+  const SS = get("second");
+
+  // Offset fijo -06:00
+  return `${yyyy}-${mm}-${dd}T${HH}:${MM}:${SS}-06:00`;
 }
 
 function formatTime(iso) {
@@ -199,7 +233,9 @@ function renderPending() {
 
     const code = document.createElement("div");
     code.className = "item__code";
-    code.textContent = item.code;
+    const shownCode = item.codigo ?? item.code ?? "—";
+    const shownQty = item.cantidad ?? "—";
+    code.textContent = `${shownCode}  × ${shownQty}`;
 
     const meta = document.createElement("div");
     meta.className = "item__meta";
@@ -234,7 +270,7 @@ function renderPending() {
     btnRetry.textContent = "Reintentar";
     btnRetry.disabled = !navigator.onLine;
     btnRetry.addEventListener("click", async () => {
-      await retryOne(item.code);
+      await retryOne(item.id || item.code);
     });
 
     const btnRemove = document.createElement("button");
@@ -242,7 +278,8 @@ function renderPending() {
     btnRemove.type = "button";
     btnRemove.textContent = "Quitar";
     btnRemove.addEventListener("click", () => {
-      pending = pending.filter((p) => p.code !== item.code);
+      const key = item.id || item.code;
+      pending = pending.filter((p) => (p.id || p.code) !== key);
       savePending();
       renderPending();
       toast("Quitado de pendientes.");
@@ -258,36 +295,100 @@ function renderPending() {
 }
 
 /* ========= Upload ========= */
-function buildUploadUrl(code) {
+function buildUploadUrl(payload) {
   const cfg = MODE_CONFIG[mode];
   const u = new URL(cfg.uploadBaseUrl);
-  u.searchParams.set(cfg.uploadParam, code);
+  u.searchParams.set("accion", cfg.uploadAction);
+  u.searchParams.set("codigo", String(payload.codigo ?? ""));
+  u.searchParams.set("cantidad", String(payload.cantidad ?? ""));
+  u.searchParams.set("fecha", String(payload.fecha ?? ""));
   return u.toString();
 }
 
-async function uploadCode(code) {
-  const url = buildUploadUrl(code);
+async function uploadMovimiento(payload) {
+  const url = buildUploadUrl(payload);
   const res = await fetch(url, {
     method: "GET",
     cache: "no-store",
   });
   const text = await res.text();
-  const ok = res.ok && String(text).trim().toUpperCase().includes("OK");
+  const maybeJson = parsePossiblyWrappedJson(text);
+  const ok = res.ok && (maybeJson?.ok === true || String(text).trim().toUpperCase().includes("OK"));
   return { ok, status: res.status, text };
 }
 
-function addPending(code) {
-  const exists = pending.some((p) => p.code === code);
-  if (exists) return false;
+function makeId() {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  }
+}
 
+function addPendingMovimiento(payload) {
   pending.unshift({
-    code,
+    id: makeId(),
+    codigo: payload.codigo,
+    cantidad: payload.cantidad,
+    fecha: payload.fecha,
     createdAt: nowIso(),
     lastAttemptAt: null,
     attempts: 0,
   });
   savePending();
   return true;
+}
+
+function openQtyModal(code) {
+  if (!el.qtyModal) return Promise.resolve(null);
+
+  el.qtyCode.textContent = String(code || "");
+  el.qtyInput.value = "1";
+
+  el.qtyModal.classList.add("modal--open");
+  el.qtyModal.setAttribute("aria-hidden", "false");
+
+  // Focus al input para teclear rápido
+  window.setTimeout(() => el.qtyInput?.focus?.(), 0);
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      el.qtyModal.classList.remove("modal--open");
+      el.qtyModal.setAttribute("aria-hidden", "true");
+      el.btnQtySave?.removeEventListener("click", onSave);
+      el.btnQtyCancel?.removeEventListener("click", onCancel);
+      el.btnCloseQty?.removeEventListener("click", onCancel);
+      el.qtyBackdrop?.removeEventListener("click", onCancel);
+      el.qtyInput?.removeEventListener("keydown", onKey);
+    };
+
+    const onCancel = () => {
+      cleanup();
+      resolve(null);
+    };
+
+    const onSave = () => {
+      const n = Number(el.qtyInput.value);
+      if (!Number.isFinite(n) || n <= 0) {
+        toast("Cantidad inválida.", "warn");
+        el.qtyInput.focus();
+        return;
+      }
+      cleanup();
+      resolve(Math.floor(n));
+    };
+
+    const onKey = (ev) => {
+      if (ev.key === "Enter") onSave();
+      if (ev.key === "Escape") onCancel();
+    };
+
+    el.btnQtySave?.addEventListener("click", onSave);
+    el.btnQtyCancel?.addEventListener("click", onCancel);
+    el.btnCloseQty?.addEventListener("click", onCancel);
+    el.qtyBackdrop?.addEventListener("click", onCancel);
+    el.qtyInput?.addEventListener("keydown", onKey);
+  });
 }
 
 async function processScannedCode(code) {
@@ -299,43 +400,55 @@ async function processScannedCode(code) {
 
   setLastScan(cleaned);
 
+  const cantidad = await openQtyModal(cleaned);
+  if (cantidad == null) {
+    toast("Cancelado.", "info");
+    renderPending();
+    return;
+  }
+
+  const payload = {
+    codigo: cleaned,
+    cantidad,
+    fecha: nowIsoGuatemala(),
+  };
+
   // Si no hay internet, se guarda en localStorage.
   if (!navigator.onLine) {
-    const added = addPending(cleaned);
+    addPendingMovimiento(payload);
     renderPending();
-    toast(added ? "Guardado sin internet (pendiente)." : "Ya estaba en pendientes.");
+    toast("Guardado sin internet (pendiente).");
     return;
   }
 
   // Con internet: intenta subir.
   try {
     toast("Subiendo…");
-    const out = await uploadCode(cleaned);
+    const out = await uploadMovimiento(payload);
     if (out.ok) {
       toast("Subido OK.");
-      // Si estaba en pendientes por algún motivo, lo quitamos.
-      pending = pending.filter((p) => p.code !== cleaned);
+      // No guardamos nada en pendientes
       savePending();
       renderPending();
     } else {
-      addPending(cleaned);
+      addPendingMovimiento(payload);
       renderPending();
       toast(`No se pudo subir (respuesta: ${String(out.text).trim().slice(0, 60) || out.status}). Guardado pendiente.`, "warn");
     }
   } catch (e) {
-    addPending(cleaned);
+    addPendingMovimiento(payload);
     renderPending();
     toast("Error de red. Guardado pendiente.", "warn");
   }
 }
 
-async function retryOne(code) {
+async function retryOne(idOrCode) {
   if (!navigator.onLine) {
     toast("No hay internet.", "warn");
     return;
   }
 
-  const item = pending.find((p) => p.code === code);
+  const item = pending.find((p) => (p.id || p.code) === idOrCode);
   if (!item) return;
   item.attempts = (item.attempts || 0) + 1;
   item.lastAttemptAt = nowIso();
@@ -344,9 +457,14 @@ async function retryOne(code) {
 
   try {
     toast("Reintentando…");
-    const out = await uploadCode(code);
+    const payload = {
+      codigo: item.codigo ?? item.code,
+      cantidad: item.cantidad ?? 1,
+      fecha: item.fecha ?? nowIsoGuatemala(),
+    };
+    const out = await uploadMovimiento(payload);
     if (out.ok) {
-      pending = pending.filter((p) => p.code !== code);
+      pending = pending.filter((p) => (p.id || p.code) !== idOrCode);
       savePending();
       renderPending();
       toast("Subido OK.");
@@ -366,11 +484,11 @@ async function retryAll() {
   if (!pending.length) return;
 
   // Copia para evitar problemas si vamos quitando elementos.
-  const codes = pending.map((p) => p.code);
-  for (const c of codes) {
+  const keys = pending.map((p) => p.id || p.code);
+  for (const k of keys) {
     // Pequeña pausa para que la UI se sienta viva y no dispare demasiadas requests.
     // eslint-disable-next-line no-await-in-loop
-    await retryOne(c);
+    await retryOne(k);
   }
 }
 
