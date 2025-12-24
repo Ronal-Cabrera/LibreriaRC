@@ -1,4 +1,10 @@
 /* ========= Config ========= */
+// En producción, el Service Worker puede dejar assets viejos cacheados.
+// Este mecanismo compara una versión "global" (version.json) y si cambia,
+// obliga al usuario a aceptar una limpieza de cache + SW para cargar limpio.
+const VERSION_URL = "./version.json";
+const STORAGE_APP_VERSION = "qr_app_version_v1";
+
 const SALES_UPLOAD_BASE_URL =
   "https://script.google.com/macros/s/AKfycbzniCT5eZ0YERSt-YfsEkpxefQ-qV6aa_H12VnrUuYXZ4VRkZb-zY2sXl7Y44Dxz4UR/exec";
 
@@ -26,6 +32,133 @@ const MODE_CONFIG = {
 const STORAGE_MODE = "qr_mode_v1";
 const STORAGE_KEY_PREFIX = "qr_pending_uploads_v1";
 const STORAGE_LAST_SCAN_PREFIX = "qr_last_scan_v1";
+
+/* ========= Update / Cache Bust ========= */
+function updateModalHtml({ currentVersion, serverVersion }) {
+  const cv = currentVersion || "—";
+  const sv = serverVersion || "—";
+
+  return `
+    <div class="modal modal--open" id="updateModal" aria-hidden="false" role="dialog" aria-label="Actualización disponible">
+      <div class="modal__backdrop"></div>
+      <div class="modal__sheet" style="max-width: 560px;">
+        <div class="modal__header">
+          <div class="modal__title">Nueva versión detectada</div>
+        </div>
+        <div class="updateModal__body">
+          <div class="updateModal__desc">
+            Para evitar problemas de caché en producción, es necesario limpiar el Service Worker y recargar la web.
+            Este aviso se mantendrá hasta que aceptes.
+          </div>
+          <div class="updateModal__meta">
+            <div>Tu versión: <code>${cv}</code></div>
+            <div>Servidor: <code>${sv}</code></div>
+          </div>
+          <div class="updateModal__actions">
+            <button class="btn btn--primary" id="btnUpdateNow" type="button">Actualizar ahora</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function showUpdateRequiredModal({ currentVersion, serverVersion, onAccept }) {
+  // Evita duplicados
+  const existing = document.getElementById("updateModal");
+  if (existing) return;
+
+  const wrap = document.createElement("div");
+  wrap.innerHTML = updateModalHtml({ currentVersion, serverVersion });
+  const modal = wrap.firstElementChild;
+  document.body.appendChild(modal);
+
+  const btn = document.getElementById("btnUpdateNow");
+  btn?.addEventListener("click", () => onAccept?.());
+}
+
+async function fetchServerVersion() {
+  try {
+    const res = await fetch(`${VERSION_URL}?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    const v = data?.version;
+    return typeof v === "string" && v.trim() ? v.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function getStoredAppVersion() {
+  try {
+    return localStorage.getItem(STORAGE_APP_VERSION) || "";
+  } catch {
+    return "";
+  }
+}
+
+function setStoredAppVersion(v) {
+  try {
+    localStorage.setItem(STORAGE_APP_VERSION, String(v || ""));
+  } catch {
+    // ignore
+  }
+}
+
+async function clearAllCaches() {
+  if (!("caches" in window)) return;
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+  } catch {
+    // ignore
+  }
+}
+
+async function unregisterAllServiceWorkers() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map((r) => r.unregister()));
+  } catch {
+    // ignore
+  }
+}
+
+async function hardRefreshToLatest(serverVersion) {
+  // Guardamos la nueva versión primero para evitar loops si el reload tarda.
+  setStoredAppVersion(serverVersion);
+
+  // Limpieza best-effort: SW + Cache Storage.
+  await unregisterAllServiceWorkers();
+  await clearAllCaches();
+
+  // Cache-bust de navegación (por si algún proxy hace cache agresivo).
+  const next = `./?v=${encodeURIComponent(serverVersion)}&t=${Date.now()}`;
+  window.location.replace(next);
+}
+
+async function checkForUpdateAndMaybeForceRefresh() {
+  // Si no hay internet no hacemos nada.
+  if (!navigator.onLine) return;
+
+  const serverVersion = await fetchServerVersion();
+  if (!serverVersion) return;
+
+  const currentVersion = getStoredAppVersion();
+  if (!currentVersion) {
+    setStoredAppVersion(serverVersion);
+    return;
+  }
+
+  if (currentVersion !== serverVersion) {
+    showUpdateRequiredModal({
+      currentVersion,
+      serverVersion,
+      onAccept: () => hardRefreshToLatest(serverVersion),
+    });
+  }
+}
 
 /* ========= DOM ========= */
 const el = {
@@ -863,10 +996,16 @@ window.addEventListener("offline", () => {
 /* ========= Init ========= */
 function registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("./service-worker.js", { scope: "./" }).catch(() => {
-    // ignora
-  });
+  navigator.serviceWorker
+    .register("./service-worker.js", { scope: "./" })
+    .then((reg) => reg.update().catch(() => {}))
+    .catch(() => {
+      // ignora
+    });
 }
+
+// Importante: correr esto lo más temprano posible para detectar versión nueva.
+checkForUpdateAndMaybeForceRefresh();
 
 setNetStatus();
 applyModeToUI();

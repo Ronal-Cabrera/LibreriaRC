@@ -46,6 +46,17 @@ Luego abre `http://localhost:8080`.
 
 La app usa rutas **relativas** (`./...`) para que funcione bien en subcarpetas tipo `https://usuario.github.io/tu-repo/`.
 
+### Versión + limpieza de caché (producción)
+
+Para evitar que en producción se queden archivos viejos por caché/service worker:
+
+- Existe un archivo **`version.json`** en la raíz.
+- Cada vez que hagas un cambio y lo deployes, **incrementa** el valor `version`.
+- La app consulta `version.json` con `no-store`. Si detecta una versión distinta a la guardada en el teléfono/PC, mostrará un aviso y al aceptar hará:
+  - **unregister** del/los service worker(s)
+  - borrado de **Cache Storage**
+  - recarga “limpia”
+
 ### Service worker (offline)
 
 Se usa `service-worker.js` para cachear la “app shell” (HTML/CSS/JS/manifest/icon). Así, aunque no tengas internet o cierres y vuelvas a abrir, la web seguirá cargando y podrás **escanear y guardar pendientes offline**.

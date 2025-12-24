@@ -319,6 +319,35 @@ body{
 }
 .modal__title{font-weight:900}
 
+.updateModal__body{
+  padding: 14px 16px;
+}
+.updateModal__desc{
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.updateModal__meta{
+  margin-top: 10px;
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.updateModal__meta code{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  color: var(--text);
+  font-weight: 800;
+}
+.updateModal__actions{
+  margin-top: 14px;
+  display:flex;
+  justify-content:flex-end;
+  gap: 10px;
+  flex-wrap:wrap;
+}
+
 .scanner{padding:14px}
 .scanner__frame{
   position:relative;
