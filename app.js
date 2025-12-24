@@ -30,14 +30,16 @@ const STORAGE_LAST_SCAN_PREFIX = "qr_last_scan_v1";
 /* ========= DOM ========= */
 const el = {
   netStatus: document.getElementById("netStatus"),
-  tabPendientes: document.getElementById("tabPendientes"),
+  appTitle: document.getElementById("appTitle"),
   tabVentas: document.getElementById("tabVentas"),
   viewPendientes: document.getElementById("viewPendientes"),
   viewVentas: document.getElementById("viewVentas"),
   btnOpenScanner: document.getElementById("btnOpenScanner"),
   btnRetryAll: document.getElementById("btnRetryAll"),
+  pendingStats: document.getElementById("pendingStats"),
   pendingList: document.getElementById("pendingList"),
   pendingEmpty: document.getElementById("pendingEmpty"),
+  pendingHint: document.getElementById("pendingHint"),
   statPending: document.getElementById("statPending"),
   statLastScan: document.getElementById("statLastScan"),
   btnClearLocal: document.getElementById("btnClearLocal"),
@@ -71,6 +73,7 @@ const el = {
 /* ========= State ========= */
 let mode = loadMode();
 let pending = loadPending();
+let isListView = false;
 let stream = null;
 let detector = null;
 let scanning = false;
@@ -206,22 +209,50 @@ function modeLabel() {
 
 /* ========= Views ========= */
 function setActiveTab(tab) {
-  const isPend = tab === "pendientes";
-  el.tabPendientes.classList.toggle("tab--active", isPend);
-  el.tabVentas.classList.toggle("tab--active", !isPend);
-  el.viewPendientes.classList.toggle("view--active", isPend);
-  el.viewVentas.classList.toggle("view--active", !isPend);
+  // Solo dejamos un botón: "Ver lista" / "Regresar"
+  isListView = tab === "ventas";
+  el.viewPendientes.classList.toggle("view--active", !isListView);
+  el.viewVentas.classList.toggle("view--active", isListView);
+
+  if (el.tabVentas) {
+    el.tabVentas.classList.toggle("tab--active", isListView);
+    el.tabVentas.textContent = isListView ? "Regresar" : `Ver lista de ${modeLabel()}`;
+  }
+
+  // En modo lista, ocultar el botón principal de escaneo
+  if (el.btnOpenScanner) el.btnOpenScanner.style.display = isListView ? "none" : "";
 }
 
 function renderPending() {
-  if (el.pendingTitle) el.pendingTitle.textContent = `Pendientes (${modeLabel()})`;
+  const hasPending = pending.length > 0;
+
+  // Si no hay pendientes: no mostrar nada relacionado con "pendientes"
+  if (el.pendingTitle) {
+    el.pendingTitle.textContent = hasPending ? `Pendientes (${modeLabel()})` : `Listo para registrar (${modeLabel()})`;
+  }
+  if (el.pendingHint) {
+    el.pendingHint.textContent = hasPending
+      ? "Pendientes guardados. Se enviarán cuando haya internet o con “Reintentar todo”."
+      : "Escanea para registrar. Si no hay internet, se guarda y se envía después.";
+  }
+
   el.statPending.textContent = String(pending.length);
   const last = getLastScan();
   el.statLastScan.textContent = last ? last : "—";
 
   el.pendingList.innerHTML = "";
-  el.pendingEmpty.style.display = pending.length ? "none" : "block";
-  el.btnRetryAll.disabled = pending.length === 0 || !navigator.onLine;
+  if (el.pendingStats) el.pendingStats.style.display = hasPending ? "" : "none";
+  if (el.pendingList) el.pendingList.style.display = hasPending ? "" : "none";
+  if (el.pendingEmpty) el.pendingEmpty.style.display = "none"; // nunca mostrar el bloque "No hay pendientes"
+
+  // Botones relacionados a pendientes: solo cuando existan
+  if (el.btnRetryAll) {
+    el.btnRetryAll.style.display = hasPending ? "" : "none";
+    el.btnRetryAll.disabled = !hasPending || !navigator.onLine;
+  }
+  if (el.btnClearLocal) el.btnClearLocal.style.display = hasPending ? "" : "none";
+
+  if (!hasPending) return;
 
   for (const item of pending) {
     const row = document.createElement("div");
@@ -744,10 +775,11 @@ function escapeHtml(s) {
 }
 
 /* ========= Events ========= */
-el.tabPendientes.addEventListener("click", () => setActiveTab("pendientes"));
 el.tabVentas.addEventListener("click", async () => {
-  setActiveTab("ventas");
-  await loadVentas();
+  // Toggle: Ver lista <-> Regresar
+  const next = isListView ? "pendientes" : "ventas";
+  setActiveTab(next);
+  if (next === "ventas") await loadVentas();
 });
 
 function applyModeToUI() {
@@ -756,11 +788,23 @@ function applyModeToUI() {
   if (el.modeDevoluciones) el.modeDevoluciones.classList.toggle("mode--active", !isSales);
 
   // Tab label dinámico para la lista online
-  if (el.tabVentas) el.tabVentas.textContent = `Ver lista de ${modeLabel()}`;
+  if (el.tabVentas) el.tabVentas.textContent = isListView ? "Regresar" : `Ver lista de ${modeLabel()}`;
 
   // Títulos dinámicos
   if (el.pendingTitle) el.pendingTitle.textContent = `Pendientes (${modeLabel()})`;
   if (el.listTitle) el.listTitle.textContent = `Lista de ${modeLabel()}`;
+
+  // CTA principal bien claro para usuarios jóvenes
+  if (el.btnOpenScanner) {
+    el.btnOpenScanner.textContent = mode === "devoluciones" ? "Registrar devolución (QR)" : "Registrar venta (QR)";
+  }
+
+  if (el.appTitle) {
+    el.appTitle.textContent = mode === "devoluciones" ? "Registrar devoluciones" : "Registrar ventas";
+  }
+
+  // Si estamos en lista, siempre ocultar escaneo
+  if (el.btnOpenScanner) el.btnOpenScanner.style.display = isListView ? "none" : "";
 }
 
 function setMode(nextMode) {

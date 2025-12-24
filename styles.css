@@ -1,10 +1,11 @@
 :root{
-  --bg:#0b1220;
-  --card:#0f1b33;
-  --card2:#0c1730;
+  /* Un poco menos oscuro (aclara ligeramente) */
+  --bg:#26365d;
+  --card:#1c335f;
+  --card2:#182e58;
   --text:#eaf0ff;
   --muted:#a9b6d3;
-  --line:rgba(255,255,255,.08);
+  --line:rgba(255,255,255,.12);
   --primary:#7c5cff;
   --primary2:#4fe0c8;
   --danger:#ff4d6d;
@@ -20,7 +21,7 @@ body{
   background:
     radial-gradient(900px 520px at 25% 0%, rgba(124,92,255,.20), transparent 70%),
     radial-gradient(900px 520px at 90% 10%, rgba(79,224,200,.14), transparent 70%),
-    linear-gradient(180deg, #071022, var(--bg));
+    linear-gradient(180deg, #10214a, var(--bg));
   color:var(--text);
 }
 
@@ -110,9 +111,17 @@ body{
 }
 .mode:active{transform:scale(.99)}
 .mode--active{
-  background: rgba(79,224,200,.14);
-  border-color: rgba(79,224,200,.30);
+  background: rgba(79,224,200,.22);
+  border-color: rgba(79,224,200,.48);
   color: var(--text);
+  box-shadow: 0 10px 26px rgba(0,0,0,.18), 0 0 0 4px rgba(79,224,200,.12);
+}
+
+/* Diferenciar más el activo según el modo */
+#modeDevoluciones.mode--active{
+  background: rgba(255,77,109,.20);
+  border-color: rgba(255,77,109,.55);
+  box-shadow: 0 10px 26px rgba(0,0,0,.18), 0 0 0 4px rgba(255,77,109,.12);
 }
 
 .content{
@@ -401,6 +410,11 @@ video{
   .topbar__actions{width:auto}
   .btn--primary{width:auto}
   .mode{min-width: 0; flex:1}
+
+  /* Menos botones en móvil (más claro para usuarios) */
+  #btnRefreshVentas{display:none}
+  #btnClearLocal{display:none}
+  #btnRetryAll:disabled{display:none}
 }
 
 

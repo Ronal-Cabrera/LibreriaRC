@@ -16,7 +16,7 @@
         <div class="brand">
           <div class="brand__dot" aria-hidden="true"></div>
           <div class="brand__text">
-            <div class="brand__title">QR Offline Uploader</div>
+            <div class="brand__title" id="appTitle">Registro</div>
             <div class="brand__sub" id="netStatus">Comprobando conexión…</div>
           </div>
         </div>
@@ -29,8 +29,7 @@
       </header>
 
       <nav class="tabs" aria-label="Navegación principal">
-        <button class="tab tab--active" id="tabPendientes" type="button">Pendientes</button>
-        <button class="tab" id="tabVentas" type="button">Lista</button>
+        <button class="tab" id="tabVentas" type="button">Ver lista</button>
       </nav>
 
       <section class="modebar" aria-label="Modo">
@@ -46,14 +45,14 @@
             <div class="panel__header">
               <div class="panel__title">
                 <h2 id="pendingTitle">Pendientes (Ventas)</h2>
-                <p>Escanea sin internet y sincroniza después.</p>
+                <p id="pendingHint">Escanea para registrar. Si no hay internet, se guarda y se envía después.</p>
               </div>
               <div class="panel__actions">
                 <button class="btn btn--ghost" id="btnRetryAll" type="button">Reintentar todo</button>
               </div>
             </div>
 
-            <div class="stats">
+            <div class="stats" id="pendingStats">
               <div class="stat">
                 <div class="stat__label">Pendientes</div>
                 <div class="stat__value" id="statPending">0</div>
