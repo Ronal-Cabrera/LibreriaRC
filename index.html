@@ -30,6 +30,7 @@
 
       <nav class="tabs" aria-label="Navegación principal">
         <button class="tab" id="tabVentas" type="button">Ver lista</button>
+        <button class="tab" id="tabStock" type="button">Stock</button>
       </nav>
 
       <section class="modebar" aria-label="Modo">
@@ -88,6 +89,23 @@
 
             <div class="notice" id="ventasNotice"></div>
             <div class="ventas" id="ventasBody"></div>
+          </div>
+        </section>
+
+        <section id="viewStock" class="view" aria-label="Stock de productos">
+          <div class="panel">
+            <div class="panel__header">
+              <div class="panel__title">
+                <h2>Stock</h2>
+                <p>Esta vista solo funciona con internet.</p>
+              </div>
+              <div class="panel__actions">
+                <button class="btn btn--ghost" id="btnRefreshStock" type="button">Actualizar</button>
+              </div>
+            </div>
+
+            <div class="notice" id="stockNotice"></div>
+            <div class="ventas" id="stockBody"></div>
           </div>
         </section>
       </main>

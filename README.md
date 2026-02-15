@@ -23,6 +23,7 @@ Edita `app.js` y ajusta:
 - `RETURNS_UPLOAD_BASE_URL` (URL para subir devoluciones)
 - `MODE_CONFIG.ventas.listUrl` (URL para lista online de ventas)
 - `MODE_CONFIG.devoluciones.listUrl` (URL para lista online de devoluciones)
+- `STOCK_URL` (usa `?accion=stock` y soporta `?orden=1|2|3`)
 
 ### Ejecutar (importante: usar servidor local)
 

@@ -6,11 +6,11 @@ const VERSION_URL = "./version.json";
 const STORAGE_APP_VERSION = "qr_app_version_v1";
 
 const SALES_UPLOAD_BASE_URL =
-  "https://script.google.com/macros/s/AKfycbzniCT5eZ0YERSt-YfsEkpxefQ-qV6aa_H12VnrUuYXZ4VRkZb-zY2sXl7Y44Dxz4UR/exec";
+  "https://script.google.com/macros/s/AKfycbwRT3euqtNmjqVQVEJ0B3jOrbQwQou-_TCFI3iaDABHBE72_EFYaBxW1aaOMS_Zox02/exec";
 
 // AJUSTA ESTO: URL para devoluciones (puede ser otro script o el mismo con otra acción).
 const RETURNS_UPLOAD_BASE_URL =
-  "https://script.google.com/macros/s/AKfycbzniCT5eZ0YERSt-YfsEkpxefQ-qV6aa_H12VnrUuYXZ4VRkZb-zY2sXl7Y44Dxz4UR/exec";
+  "https://script.google.com/macros/s/AKfycbwRT3euqtNmjqVQVEJ0B3jOrbQwQou-_TCFI3iaDABHBE72_EFYaBxW1aaOMS_Zox02/exec";
 
 const MODE_CONFIG = {
   ventas: {
@@ -28,6 +28,8 @@ const MODE_CONFIG = {
     listUrl: `${RETURNS_UPLOAD_BASE_URL}?accion=devoluciones`,
   },
 };
+
+const STOCK_URL = `${SALES_UPLOAD_BASE_URL}?accion=stock`;
 
 const STORAGE_MODE = "qr_mode_v1";
 const STORAGE_KEY_PREFIX = "qr_pending_uploads_v1";
@@ -165,8 +167,10 @@ const el = {
   netStatus: document.getElementById("netStatus"),
   appTitle: document.getElementById("appTitle"),
   tabVentas: document.getElementById("tabVentas"),
+  tabStock: document.getElementById("tabStock"),
   viewPendientes: document.getElementById("viewPendientes"),
   viewVentas: document.getElementById("viewVentas"),
+  viewStock: document.getElementById("viewStock"),
   btnOpenScanner: document.getElementById("btnOpenScanner"),
   btnRetryAll: document.getElementById("btnRetryAll"),
   pendingStats: document.getElementById("pendingStats"),
@@ -179,6 +183,9 @@ const el = {
   btnRefreshVentas: document.getElementById("btnRefreshVentas"),
   ventasNotice: document.getElementById("ventasNotice"),
   ventasBody: document.getElementById("ventasBody"),
+  btnRefreshStock: document.getElementById("btnRefreshStock"),
+  stockNotice: document.getElementById("stockNotice"),
+  stockBody: document.getElementById("stockBody"),
   pendingTitle: document.getElementById("pendingTitle"),
   listTitle: document.getElementById("listTitle"),
   modeVentas: document.getElementById("modeVentas"),
@@ -206,7 +213,8 @@ const el = {
 /* ========= State ========= */
 let mode = loadMode();
 let pending = loadPending();
-let isListView = false;
+let activeView = "pendientes"; // "pendientes" | "ventas" | "stock"
+let stockOrden = 3; // 1=comprado, 2=vendido, 3=disponible
 let stream = null;
 let detector = null;
 let scanning = false;
@@ -341,19 +349,27 @@ function modeLabel() {
 }
 
 /* ========= Views ========= */
-function setActiveTab(tab) {
-  // Solo dejamos un botón: "Ver lista" / "Regresar"
-  isListView = tab === "ventas";
-  el.viewPendientes.classList.toggle("view--active", !isListView);
-  el.viewVentas.classList.toggle("view--active", isListView);
+function setActiveView(view) {
+  const v = view === "ventas" || view === "stock" ? view : "pendientes";
+  activeView = v;
+
+  el.viewPendientes.classList.toggle("view--active", activeView === "pendientes");
+  el.viewVentas.classList.toggle("view--active", activeView === "ventas");
+  el.viewStock?.classList.toggle("view--active", activeView === "stock");
 
   if (el.tabVentas) {
-    el.tabVentas.classList.toggle("tab--active", isListView);
-    el.tabVentas.textContent = isListView ? "Regresar" : `Ver lista de ${modeLabel()}`;
+    const isActive = activeView === "ventas";
+    el.tabVentas.classList.toggle("tab--active", isActive);
+    el.tabVentas.textContent = isActive ? "Regresar" : `Ver lista de ${modeLabel()}`;
+  }
+  if (el.tabStock) {
+    const isActive = activeView === "stock";
+    el.tabStock.classList.toggle("tab--active", isActive);
+    el.tabStock.textContent = isActive ? "Regresar" : "Stock";
   }
 
-  // En modo lista, ocultar el botón principal de escaneo
-  if (el.btnOpenScanner) el.btnOpenScanner.style.display = isListView ? "none" : "";
+  // En vistas online (lista/stock), ocultar el botón principal de escaneo
+  if (el.btnOpenScanner) el.btnOpenScanner.style.display = activeView === "pendientes" ? "" : "none";
 }
 
 function renderPending() {
@@ -907,12 +923,130 @@ function escapeHtml(s) {
     .replaceAll("'", "&#039;");
 }
 
+async function loadStock() {
+  if (!navigator.onLine) {
+    if (el.stockNotice) el.stockNotice.textContent = "Sin internet. Conéctate para ver stock.";
+    if (el.stockBody) el.stockBody.innerHTML = "";
+    return;
+  }
+
+  el.stockNotice.textContent = "Cargando...";
+  el.stockBody.innerHTML = "";
+
+  try {
+    const u = new URL(STOCK_URL);
+    if (stockOrden === 1 || stockOrden === 2 || stockOrden === 3) {
+      u.searchParams.set("orden", String(stockOrden));
+    }
+    u.searchParams.set("t", String(Date.now()));
+
+    const res = await fetch(u.toString(), { cache: "no-store" });
+    const text = await res.text();
+
+    if (looksLikeHtml(text)) {
+      el.stockNotice.textContent = "La API devolvió HTML (posible login/permisos).";
+      el.stockBody.innerHTML = `<pre>${escapeHtml(text.slice(0, 6000))}</pre>`;
+      return;
+    }
+
+    const maybeJson = parsePossiblyWrappedJson(text);
+    const data = maybeJson?.data;
+
+    if (!Array.isArray(data)) {
+      el.stockNotice.textContent = "Respuesta recibida (formato inesperado).";
+      el.stockBody.innerHTML = maybeJson ? `<pre>${escapeHtml(JSON.stringify(maybeJson, null, 2))}</pre>` : `<pre>${escapeHtml(text)}</pre>`;
+      return;
+    }
+
+    const ordenLabel =
+      stockOrden === 1 ? "comprado (desc)" : stockOrden === 2 ? "vendido (desc)" : stockOrden === 3 ? "disponible (desc)" : "sin orden";
+    el.stockNotice.textContent = `Stock cargado. Total: ${maybeJson.total ?? data.length} · Orden: ${ordenLabel}`;
+
+    const rows = data
+      .map((r) => ({
+        codigo: String(r?.codigo ?? ""),
+        nombre: String(r?.nombre ?? ""),
+        comprado: Number(r?.comprado ?? 0),
+        vendido: Number(r?.vendido ?? 0),
+        disponible: Number(r?.disponible ?? 0),
+      }))
+      // No reordenamos acá: el orden viene del backend (orden=1/2/3).
+      ;
+
+    const tableHtml = `
+      <div style="overflow:auto; padding: 16px;">
+        <table style="width:100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr>
+              <th style="text-align:left; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12);">Código</th>
+              <th style="text-align:left; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12);">Nombre</th>
+              <th data-orden="1" style="text-align:right; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12); cursor:pointer; user-select:none;">
+                Comprado${stockOrden === 1 ? " ▾" : ""}
+              </th>
+              <th data-orden="2" style="text-align:right; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12); cursor:pointer; user-select:none;">
+                Vendido${stockOrden === 2 ? " ▾" : ""}
+              </th>
+              <th data-orden="3" style="text-align:right; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12); cursor:pointer; user-select:none;">
+                Disponible${stockOrden === 3 ? " ▾" : ""}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows
+              .map(
+                (r) => `
+                  <tr>
+                    <td style="padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.08); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">${escapeHtml(
+                      r.codigo
+                    )}</td>
+                    <td style="padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.08);">${escapeHtml(r.nombre)}</td>
+                    <td style="padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.08); text-align:right;">${escapeHtml(
+                      String(r.comprado)
+                    )}</td>
+                    <td style="padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.08); text-align:right;">${escapeHtml(
+                      String(r.vendido)
+                    )}</td>
+                    <td style="padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.08); text-align:right; font-weight:900;">${escapeHtml(
+                      String(r.disponible)
+                    )}</td>
+                  </tr>
+                `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    el.stockBody.innerHTML = tableHtml;
+
+    // Orden vía click en el nombre de columna (<th>).
+    el.stockBody.querySelectorAll("th[data-orden]").forEach((th) => {
+      th.addEventListener("click", async () => {
+        const ord = Number(th.getAttribute("data-orden") || 0);
+        if (ord !== 1 && ord !== 2 && ord !== 3) return;
+        stockOrden = ord;
+        await loadStock();
+      });
+    });
+  } catch (err) {
+    el.stockNotice.textContent = "Error cargando stock (red/CORS/endpoint).";
+    el.stockBody.innerHTML = `<pre style="color: #ff6b6b;">${escapeHtml(String(err))}</pre>`;
+  }
+}
+
 /* ========= Events ========= */
 el.tabVentas.addEventListener("click", async () => {
   // Toggle: Ver lista <-> Regresar
-  const next = isListView ? "pendientes" : "ventas";
-  setActiveTab(next);
+  const next = activeView === "ventas" ? "pendientes" : "ventas";
+  setActiveView(next);
   if (next === "ventas") await loadVentas();
+});
+
+el.tabStock?.addEventListener("click", async () => {
+  const next = activeView === "stock" ? "pendientes" : "stock";
+  setActiveView(next);
+  if (next === "stock") await loadStock();
 });
 
 function applyModeToUI() {
@@ -921,7 +1055,7 @@ function applyModeToUI() {
   if (el.modeDevoluciones) el.modeDevoluciones.classList.toggle("mode--active", !isSales);
 
   // Tab label dinámico para la lista online
-  if (el.tabVentas) el.tabVentas.textContent = isListView ? "Regresar" : `Ver lista de ${modeLabel()}`;
+  if (el.tabVentas) el.tabVentas.textContent = activeView === "ventas" ? "Regresar" : `Ver lista de ${modeLabel()}`;
 
   // Títulos dinámicos
   if (el.pendingTitle) el.pendingTitle.textContent = `Pendientes (${modeLabel()})`;
@@ -937,7 +1071,7 @@ function applyModeToUI() {
   }
 
   // Si estamos en lista, siempre ocultar escaneo
-  if (el.btnOpenScanner) el.btnOpenScanner.style.display = isListView ? "none" : "";
+  if (el.btnOpenScanner) el.btnOpenScanner.style.display = activeView === "pendientes" ? "" : "none";
 }
 
 function setMode(nextMode) {
@@ -981,6 +1115,7 @@ el.btnClearLocal.addEventListener("click", () => {
 });
 
 el.btnRefreshVentas.addEventListener("click", loadVentas);
+el.btnRefreshStock?.addEventListener("click", loadStock);
 
 window.addEventListener("online", () => {
   setNetStatus();
