@@ -25,8 +25,8 @@
           <button class="iconBtn" id="btnToggleTheme" type="button" title="Cambiar tema" aria-label="Cambiar tema">
             <span id="themeIcon">🌙</span>
           </button>
-          <button class="btn btn--primary" id="btnOpenScanner" type="button">
-            Escanear QR
+          <button class="btn btn--primary" id="btnCrearVenta" type="button">
+            + Crear Venta
           </button>
         </div>
       </header>
@@ -146,84 +146,105 @@
             Apunta al código QR dentro del recuadro.
           </div>
 
-          <div id="scannedProductsList" style="max-height: 120px; overflow-y: auto; margin: 10px 0; padding: 10px; background: rgba(255,255,255,.03); border:1px solid var(--line); border-radius: 10px; display: none;">
-            <div style="font-weight: 700; margin-bottom: 8px; color: var(--success); font-size:14px;">✓ Productos agregados (<span id="scannedCount2">0</span>):</div>
-            <div id="scannedProductsContent" style="font-size:13px;"></div>
-          </div>
-
           <div class="scanner__actions">
             <button class="btn btn--ghost" id="btnToggleFlash" type="button" disabled>
               💡 Flash
             </button>
-            <button class="btn btn--primary" id="btnFinishScanning" type="button" style="display: none;">
-              ✓ Finalizar (<span id="scannedCount">0</span>)
-            </button>
             <button class="btn btn--danger" id="btnStopCamera" type="button">✕ Cancelar</button>
-          </div>
-
-          <!-- Panel de confirmación de QR -->
-          <div class="qr-confirm" id="qrConfirm">
-            <div class="qr-confirm__product">
-              <div class="qr-confirm__name" id="qrConfirmName">Producto</div>
-              <div class="qr-confirm__details">
-                <div class="qr-confirm__detail">
-                  <span>Código:</span>
-                  <strong id="qrConfirmCode">-</strong>
-                </div>
-                <div class="qr-confirm__detail">
-                  <span>Precio:</span>
-                  <strong id="qrConfirmPrice">Q 0.00</strong>
-                </div>
-              </div>
-            </div>
-            <div class="qr-confirm__actions">
-              <button class="qr-confirm__btn qr-confirm__btn--reject" id="btnRejectQR" type="button">
-                ✕ Rechazar
-              </button>
-              <button class="qr-confirm__btn qr-confirm__btn--accept" id="btnAcceptQR" type="button">
-                ✓ Agregar
-              </button>
-            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Tabla de Productos Modal -->
-    <div class="modal" id="productsModal" aria-hidden="true" role="dialog" aria-label="Productos">
-      <div class="modal__backdrop" id="productsBackdrop"></div>
-      <div class="modal__sheet" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
+    <!-- Modal de Venta (Tabla de Productos) -->
+    <div class="modal" id="ventaModal" aria-hidden="true" role="dialog" aria-label="Crear Venta">
+      <div class="modal__backdrop" id="ventaBackdrop"></div>
+      <div class="modal__sheet" style="max-width: 950px; max-height: 90vh; overflow-y: auto;">
         <div class="modal__header">
-          <div class="modal__title">Productos Escaneados</div>
-          <button class="iconBtn" id="btnCloseProducts" type="button" aria-label="Cerrar">✕</button>
+          <div class="modal__title">Nueva Venta</div>
+          <button class="iconBtn" id="btnCloseVenta" type="button" aria-label="Cerrar">✕</button>
         </div>
 
         <div style="padding: 14px 16px;">
+          <!-- Botón para agregar productos -->
+          <div style="margin-bottom: 14px;">
+            <button class="btn btn--primary" id="btnAgregarProducto" type="button" style="width: 100%;">
+              + Agregar Producto
+            </button>
+          </div>
+
+          <!-- Tabla de productos -->
           <div style="overflow-x: auto;">
             <table id="productsTable" style="width: 100%; border-collapse: collapse; margin-bottom: 1rem;">
               <thead>
-                <tr style="background: rgba(255,255,255,0.05); border-bottom: 2px solid rgba(255,255,255,0.1);">
+                <tr style="background: var(--card2); border-bottom: 2px solid var(--line);">
                   <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Nombre</th>
-                  <th style="padding: 0.75rem; text-align: center; font-weight: 600; width: 120px;">Cantidad</th>
-                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 100px;">Precio Unit.</th>
-                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 120px;">Precio Manual</th>
-                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 100px;">Total</th>
+                  <th style="padding: 0.75rem; text-align: center; font-weight: 600; width: 100px;">Cantidad</th>
+                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 90px;">Precio</th>
+                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 110px;">P. Manual</th>
+                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 90px;">Total</th>
+                  <th style="padding: 0.75rem; text-align: center; font-weight: 600; width: 60px;">-</th>
                 </tr>
               </thead>
               <tbody id="productsTableBody">
-                <!-- Filas dinámicas -->
+                <tr id="emptyRow">
+                  <td colspan="6" style="padding: 2rem; text-align: center; color: var(--muted);">
+                    No hay productos. Presiona "Agregar Producto" para escanear.
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
 
+          <!-- Total General -->
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding: 14px; background: rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.2); border-radius: 10px;">
             <div style="font-weight: 700; font-size: 15px; color: var(--muted);">Total General:</div>
             <div id="totalGeneral" style="font-weight: 900; font-size: 22px; color: var(--primary);">Q 0.00</div>
           </div>
 
+          <!-- Botones de acción -->
           <div style="display:flex; gap: 10px; justify-content:flex-end; flex-wrap: wrap;">
-            <button class="btn btn--ghost" id="btnProductsCancel" type="button">Cancelar</button>
-            <button class="btn btn--primary" id="btnProductsSave" type="button">Guardar</button>
+            <button class="btn btn--ghost" id="btnVentaCancel" type="button">Cancelar</button>
+            <button class="btn btn--primary" id="btnVentaSave" type="button">Guardar Venta</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mini Modal de Producto Encontrado -->
+    <div class="modal" id="productoEncontradoModal" aria-hidden="true" role="dialog" aria-label="Producto Encontrado">
+      <div class="modal__backdrop" id="productoEncontradoBackdrop"></div>
+      <div class="modal__sheet" style="max-width: 450px;">
+        <div class="modal__header">
+          <div class="modal__title">Producto Encontrado</div>
+        </div>
+
+        <div style="padding: 16px;">
+          <!-- Información del producto -->
+          <div style="background: var(--card2); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+            <div style="font-weight: 700; font-size: 17px; margin-bottom: 10px; color: var(--text);" id="productoNombre">
+              Nombre del Producto
+            </div>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 14px;">
+              <div>
+                <div style="font-size: 12px; margin-bottom: 4px;">Código</div>
+                <div style="font-weight: 700; color: var(--text);" id="productoCodigo">-</div>
+              </div>
+              <div>
+                <div style="font-size: 12px; margin-bottom: 4px;">Precio</div>
+                <div style="font-weight: 700; color: var(--primary);" id="productoPrecio">Q 0.00</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Botones de acción -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <button class="btn btn--danger" id="btnNoAgregar" type="button" style="width: 100%;">
+              ✕ No Agregar
+            </button>
+            <button class="btn btn--primary" id="btnAgregarConfirm" type="button" style="width: 100%;">
+              ✓ Agregar
+            </button>
           </div>
         </div>
       </div>

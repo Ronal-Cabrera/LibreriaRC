@@ -344,6 +344,16 @@ body{
   z-index:50;
 }
 .modal--open{display:block}
+
+/* Scanner debe estar por encima de otros modales */
+#scannerModal{
+  z-index:100;
+}
+
+/* Modal de producto encontrado también debe estar por encima */
+#productoEncontradoModal{
+  z-index:110;
+}
 .modal__backdrop{
   position:absolute;
   inset:0;

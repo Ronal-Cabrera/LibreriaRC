@@ -198,28 +198,28 @@ const el = {
   scannerBackdrop: document.getElementById("scannerBackdrop"),
   btnCloseScanner: document.getElementById("btnCloseScanner"),
   btnStopCamera: document.getElementById("btnStopCamera"),
-  btnFinishScanning: document.getElementById("btnFinishScanning"),
-  scannedCount: document.getElementById("scannedCount"),
-  scannedCount2: document.getElementById("scannedCount2"),
-  scannedProductsList: document.getElementById("scannedProductsList"),
-  scannedProductsContent: document.getElementById("scannedProductsContent"),
   btnToggleFlash: document.getElementById("btnToggleFlash"),
   scannerHelp: document.getElementById("scannerHelp"),
   video: document.getElementById("video"),
-  qrConfirm: document.getElementById("qrConfirm"),
-  qrConfirmName: document.getElementById("qrConfirmName"),
-  qrConfirmCode: document.getElementById("qrConfirmCode"),
-  qrConfirmPrice: document.getElementById("qrConfirmPrice"),
-  btnAcceptQR: document.getElementById("btnAcceptQR"),
-  btnRejectQR: document.getElementById("btnRejectQR"),
 
-  productsModal: document.getElementById("productsModal"),
-  productsBackdrop: document.getElementById("productsBackdrop"),
-  btnCloseProducts: document.getElementById("btnCloseProducts"),
-  btnProductsCancel: document.getElementById("btnProductsCancel"),
-  btnProductsSave: document.getElementById("btnProductsSave"),
+  btnCrearVenta: document.getElementById("btnCrearVenta"),
+  ventaModal: document.getElementById("ventaModal"),
+  ventaBackdrop: document.getElementById("ventaBackdrop"),
+  btnCloseVenta: document.getElementById("btnCloseVenta"),
+  btnVentaCancel: document.getElementById("btnVentaCancel"),
+  btnVentaSave: document.getElementById("btnVentaSave"),
+  btnAgregarProducto: document.getElementById("btnAgregarProducto"),
   productsTableBody: document.getElementById("productsTableBody"),
   totalGeneral: document.getElementById("totalGeneral"),
+  emptyRow: document.getElementById("emptyRow"),
+  
+  productoEncontradoModal: document.getElementById("productoEncontradoModal"),
+  productoEncontradoBackdrop: document.getElementById("productoEncontradoBackdrop"),
+  productoNombre: document.getElementById("productoNombre"),
+  productoCodigo: document.getElementById("productoCodigo"),
+  productoPrecio: document.getElementById("productoPrecio"),
+  btnNoAgregar: document.getElementById("btnNoAgregar"),
+  btnAgregarConfirm: document.getElementById("btnAgregarConfirm"),
 
   toast: document.getElementById("toast"),
 };
@@ -236,9 +236,8 @@ let lastDetectAt = 0;
 let torchOn = false;
 let scanCanvas = null;
 let scanCtx = null;
-let currentProducts = []; // Array de productos escaneados en la sesión actual
-let pendingQRConfirmation = null; // Producto pendiente de confirmación
-let isWaitingConfirmation = false; // Flag para pausar el escaneo
+let currentProducts = []; // Array de productos en la venta actual
+let productoEscaneado = null; // Producto recién escaneado
 
 /* ========= Utils ========= */
 function nowIso() {
@@ -627,134 +626,54 @@ function actualizarTotales() {
   }
 }
 
-function renderProductsTable() {
-  if (!el.productsTableBody) return;
+// Funciones antiguas eliminadas - ahora usamos renderTablaProductos
 
-  el.productsTableBody.innerHTML = "";
+/* ========= Guardar Venta ========= */
+async function guardarVenta() {
+  if (currentProducts.length === 0) {
+    toast("No hay productos para guardar", "warn");
+    return;
+  }
+  
+  // Preparar el array de registros para enviar
+  const fecha = nowIsoGuatemala();
+  const registros = currentProducts.map(p => ({
+    codigo: p.codigo,
+    cantidad: p.cantidad,
+    fecha: fecha,
+    precio_manual: p.precioManual || 0,
+  }));
 
-  currentProducts.forEach((producto, index) => {
-    const row = document.createElement("tr");
-    row.style.borderBottom = "1px solid rgba(255,255,255,0.05)";
+  // Si no hay internet, se guarda en localStorage.
+  if (!navigator.onLine) {
+    addPendingMovimientos(registros);
+    renderPending();
+    toast("Guardado sin internet (pendiente).");
+    cerrarModalVenta();
+    return;
+  }
 
-    // Columna: Nombre
-    const tdNombre = document.createElement("td");
-    tdNombre.style.padding = "0.75rem";
-    tdNombre.textContent = producto.nombre;
-    row.appendChild(tdNombre);
-
-    // Columna: Cantidad (editable)
-    const tdCantidad = document.createElement("td");
-    tdCantidad.style.padding = "0.75rem";
-    tdCantidad.style.textAlign = "center";
-    const inputCantidad = document.createElement("input");
-    inputCantidad.type = "number";
-    inputCantidad.inputMode = "numeric";
-    inputCantidad.min = "1";
-    inputCantidad.step = "1";
-    inputCantidad.value = producto.cantidad;
-    inputCantidad.style.width = "80px";
-    inputCantidad.style.padding = "8px";
-    inputCantidad.style.borderRadius = "8px";
-    inputCantidad.style.border = "1px solid var(--line)";
-    inputCantidad.style.background = "var(--input-bg)";
-    inputCantidad.style.color = "var(--text)";
-    inputCantidad.style.fontWeight = "800";
-    inputCantidad.style.textAlign = "center";
-    inputCantidad.addEventListener("input", (e) => {
-      producto.cantidad = Number(e.target.value) || 1;
-      actualizarTotales();
-    });
-    tdCantidad.appendChild(inputCantidad);
-    row.appendChild(tdCantidad);
-
-    // Columna: Precio Unitario
-    const tdPrecio = document.createElement("td");
-    tdPrecio.style.padding = "0.75rem";
-    tdPrecio.style.textAlign = "right";
-    tdPrecio.textContent = `Q ${producto.precioUnitario.toFixed(2)}`;
-    row.appendChild(tdPrecio);
-
-    // Columna: Precio Manual (editable)
-    const tdPrecioManual = document.createElement("td");
-    tdPrecioManual.style.padding = "0.75rem";
-    tdPrecioManual.style.textAlign = "right";
-    const inputPrecioManual = document.createElement("input");
-    inputPrecioManual.type = "number";
-    inputPrecioManual.inputMode = "decimal";
-    inputPrecioManual.min = "0";
-    inputPrecioManual.step = "0.01";
-    inputPrecioManual.value = producto.precioManual || "0";
-    inputPrecioManual.placeholder = "0";
-    inputPrecioManual.style.width = "100px";
-    inputPrecioManual.style.padding = "8px";
-    inputPrecioManual.style.borderRadius = "8px";
-    inputPrecioManual.style.border = "1px solid var(--line)";
-    inputPrecioManual.style.background = "var(--input-bg)";
-    inputPrecioManual.style.color = "var(--text)";
-    inputPrecioManual.style.fontWeight = "800";
-    inputPrecioManual.style.textAlign = "right";
-    inputPrecioManual.addEventListener("input", (e) => {
-      producto.precioManual = Number(e.target.value) || 0;
-      actualizarTotales();
-    });
-    tdPrecioManual.appendChild(inputPrecioManual);
-    row.appendChild(tdPrecioManual);
-
-    // Columna: Total
-    const tdTotal = document.createElement("td");
-    tdTotal.style.padding = "0.75rem";
-    tdTotal.style.textAlign = "right";
-    tdTotal.style.fontWeight = "800";
-    tdTotal.style.color = "var(--primary)";
-    tdTotal.id = `total-${index}`;
-    tdTotal.textContent = `Q ${calcularTotal(producto).toFixed(2)}`;
-    row.appendChild(tdTotal);
-
-    el.productsTableBody.appendChild(row);
-  });
-
-  actualizarTotales();
-}
-
-function openProductsModal() {
-  if (!el.productsModal) return Promise.resolve(null);
-
-  renderProductsTable();
-
-  el.productsModal.classList.add("modal--open");
-  el.productsModal.setAttribute("aria-hidden", "false");
-
-  return new Promise((resolve) => {
-    const cleanup = () => {
-      el.productsModal.classList.remove("modal--open");
-      el.productsModal.setAttribute("aria-hidden", "true");
-      el.btnProductsSave?.removeEventListener("click", onSave);
-      el.btnProductsCancel?.removeEventListener("click", onCancel);
-      el.btnCloseProducts?.removeEventListener("click", onCancel);
-      el.productsBackdrop?.removeEventListener("click", onCancel);
-    };
-
-    const onCancel = () => {
-      cleanup();
-      resolve(null);
-    };
-
-    const onSave = () => {
-      cleanup();
-      resolve(currentProducts);
-    };
-
-    el.btnProductsSave?.addEventListener("click", onSave);
-    el.btnProductsCancel?.addEventListener("click", onCancel);
-    el.btnCloseProducts?.addEventListener("click", onCancel);
-    el.productsBackdrop?.addEventListener("click", onCancel);
-  });
-}
-
-// Esta función ya no se usa directamente, la lógica está en scanLoop y processSavedProducts
-// Se mantiene por compatibilidad pero no hace nada
-async function processScannedCode(code) {
-  // Función legacy - ya no se usa
+  // Con internet: intenta subir.
+  try {
+    toast("Subiendo venta…");
+    const out = await uploadMovimientos(registros);
+    if (out.ok) {
+      toast("✓ Venta guardada exitosamente");
+      cerrarModalVenta();
+      savePending();
+      renderPending();
+    } else {
+      addPendingMovimientos(registros);
+      renderPending();
+      cerrarModalVenta();
+      toast(`No se pudo subir. Guardado como pendiente.`, "warn");
+    }
+  } catch (e) {
+    addPendingMovimientos(registros);
+    renderPending();
+    cerrarModalVenta();
+    toast("Error de red. Guardado como pendiente.", "warn");
+  }
 }
 
 async function retryOne(idOrCode) {
@@ -921,7 +840,7 @@ async function scanLoop() {
 
   try {
     const codes = await det.detect(scanCanvas);
-    if (codes && codes.length && !isWaitingConfirmation) {
+    if (codes && codes.length) {
       const raw = codes[0]?.rawValue || "";
       
       // Parsear el QR
@@ -932,14 +851,16 @@ async function scanLoop() {
         return;
       }
 
-      // Pausar escaneo y mostrar confirmación
-      isWaitingConfirmation = true;
-      pendingQRConfirmation = parsedProduct;
-      setLastScan(raw);
-      showQRConfirmation(parsedProduct);
+      // Detener escaneo y cerrar cámara
+      scanning = false;
+      stopCamera();
+      closeScanner();
       
-      // Continuar el loop pero sin detectar hasta que se confirme
-      scanLoopHandle = requestAnimationFrame(scanLoop);
+      // Guardar último escaneo
+      setLastScan(raw);
+      
+      // Mostrar modal con producto encontrado
+      mostrarProductoEncontrado(parsedProduct);
       return;
     }
   } catch (e) {
@@ -949,89 +870,205 @@ async function scanLoop() {
   scanLoopHandle = requestAnimationFrame(scanLoop);
 }
 
-function showQRConfirmation(product) {
-  if (!el.qrConfirm) return;
+/* ========= Modal de Venta ========= */
+function abrirModalVenta() {
+  currentProducts = [];
+  renderTablaProductos();
   
-  el.qrConfirmName.textContent = product.nombre;
-  el.qrConfirmCode.textContent = product.codigo;
-  el.qrConfirmPrice.textContent = `Q ${product.precioUnitario.toFixed(2)}`;
-  
-  el.qrConfirm.classList.add("qr-confirm--show");
-  el.scannerHelp.textContent = "¿Agregar este producto?";
+  el.ventaModal.classList.add("modal--open");
+  el.ventaModal.setAttribute("aria-hidden", "false");
 }
 
-function hideQRConfirmation() {
-  if (!el.qrConfirm) return;
-  el.qrConfirm.classList.remove("qr-confirm--show");
-  el.scannerHelp.textContent = "Apunta al código QR dentro del recuadro.";
+function cerrarModalVenta() {
+  el.ventaModal.classList.remove("modal--open");
+  el.ventaModal.setAttribute("aria-hidden", "true");
+  currentProducts = [];
 }
 
-function acceptQR() {
-  if (!pendingQRConfirmation) return;
+function renderTablaProductos() {
+  if (!el.productsTableBody) return;
   
-  // Agregar el producto a la lista
-  pendingQRConfirmation.cantidad = 1;
-  pendingQRConfirmation.precioManual = 0;
-  currentProducts.push(pendingQRConfirmation);
+  // Limpiar tabla
+  el.productsTableBody.innerHTML = "";
   
-  toast(`✓ Agregado: ${pendingQRConfirmation.nombre}`, "info");
-  
-  // Limpiar y continuar
-  pendingQRConfirmation = null;
-  isWaitingConfirmation = false;
-  hideQRConfirmation();
-  updateScannedCount();
-}
-
-function rejectQR() {
-  if (!pendingQRConfirmation) {
-    hideQRConfirmation();
-    isWaitingConfirmation = false;
+  if (currentProducts.length === 0) {
+    // Mostrar fila vacía
+    const emptyRow = document.createElement("tr");
+    emptyRow.innerHTML = `
+      <td colspan="6" style="padding: 2rem; text-align: center; color: var(--muted);">
+        No hay productos. Presiona "Agregar Producto" para escanear.
+      </td>
+    `;
+    el.productsTableBody.appendChild(emptyRow);
+    actualizarTotalGeneral();
     return;
   }
   
-  toast("Producto rechazado. Escanea otro.", "info");
+  // Renderizar productos
+  currentProducts.forEach((producto, index) => {
+    const row = document.createElement("tr");
+    row.style.borderBottom = "1px solid var(--line)";
+    
+    // Nombre
+    const tdNombre = document.createElement("td");
+    tdNombre.style.padding = "0.75rem";
+    tdNombre.textContent = producto.nombre;
+    row.appendChild(tdNombre);
+    
+    // Cantidad (editable)
+    const tdCantidad = document.createElement("td");
+    tdCantidad.style.padding = "0.75rem";
+    tdCantidad.style.textAlign = "center";
+    const inputCantidad = document.createElement("input");
+    inputCantidad.type = "number";
+    inputCantidad.inputMode = "numeric";
+    inputCantidad.min = "1";
+    inputCantidad.step = "1";
+    inputCantidad.value = producto.cantidad;
+    inputCantidad.style.width = "70px";
+    inputCantidad.style.padding = "6px";
+    inputCantidad.style.borderRadius = "6px";
+    inputCantidad.style.border = "1px solid var(--line)";
+    inputCantidad.style.background = "var(--input-bg)";
+    inputCantidad.style.color = "var(--text)";
+    inputCantidad.style.fontWeight = "700";
+    inputCantidad.style.textAlign = "center";
+    inputCantidad.addEventListener("input", (e) => {
+      producto.cantidad = Number(e.target.value) || 1;
+      actualizarTotalFila(index);
+      actualizarTotalGeneral();
+    });
+    tdCantidad.appendChild(inputCantidad);
+    row.appendChild(tdCantidad);
+    
+    // Precio Unitario
+    const tdPrecio = document.createElement("td");
+    tdPrecio.style.padding = "0.75rem";
+    tdPrecio.style.textAlign = "right";
+    tdPrecio.style.fontSize = "14px";
+    tdPrecio.textContent = `Q ${producto.precioUnitario.toFixed(2)}`;
+    row.appendChild(tdPrecio);
+    
+    // Precio Manual (editable)
+    const tdPrecioManual = document.createElement("td");
+    tdPrecioManual.style.padding = "0.75rem";
+    tdPrecioManual.style.textAlign = "right";
+    const inputPrecioManual = document.createElement("input");
+    inputPrecioManual.type = "number";
+    inputPrecioManual.inputMode = "decimal";
+    inputPrecioManual.min = "0";
+    inputPrecioManual.step = "0.01";
+    inputPrecioManual.value = producto.precioManual || "0";
+    inputPrecioManual.placeholder = "0";
+    inputPrecioManual.style.width = "90px";
+    inputPrecioManual.style.padding = "6px";
+    inputPrecioManual.style.borderRadius = "6px";
+    inputPrecioManual.style.border = "1px solid var(--line)";
+    inputPrecioManual.style.background = "var(--input-bg)";
+    inputPrecioManual.style.color = "var(--text)";
+    inputPrecioManual.style.fontWeight = "700";
+    inputPrecioManual.style.textAlign = "right";
+    inputPrecioManual.style.fontSize = "14px";
+    inputPrecioManual.addEventListener("input", (e) => {
+      producto.precioManual = Number(e.target.value) || 0;
+      actualizarTotalFila(index);
+      actualizarTotalGeneral();
+    });
+    tdPrecioManual.appendChild(inputPrecioManual);
+    row.appendChild(tdPrecioManual);
+    
+    // Total
+    const tdTotal = document.createElement("td");
+    tdTotal.style.padding = "0.75rem";
+    tdTotal.style.textAlign = "right";
+    tdTotal.style.fontWeight = "800";
+    tdTotal.style.color = "var(--primary)";
+    tdTotal.style.fontSize = "15px";
+    tdTotal.id = `total-${index}`;
+    tdTotal.textContent = `Q ${calcularTotal(producto).toFixed(2)}`;
+    row.appendChild(tdTotal);
+    
+    // Botón eliminar
+    const tdEliminar = document.createElement("td");
+    tdEliminar.style.padding = "0.75rem";
+    tdEliminar.style.textAlign = "center";
+    const btnEliminar = document.createElement("button");
+    btnEliminar.className = "iconBtn";
+    btnEliminar.textContent = "✕";
+    btnEliminar.style.width = "32px";
+    btnEliminar.style.height = "32px";
+    btnEliminar.style.fontSize = "14px";
+    btnEliminar.addEventListener("click", () => {
+      currentProducts.splice(index, 1);
+      renderTablaProductos();
+    });
+    tdEliminar.appendChild(btnEliminar);
+    row.appendChild(tdEliminar);
+    
+    el.productsTableBody.appendChild(row);
+  });
   
-  // Limpiar y continuar
-  pendingQRConfirmation = null;
-  isWaitingConfirmation = false;
-  hideQRConfirmation();
+  actualizarTotalGeneral();
 }
 
-function updateScannedCount() {
-  const count = currentProducts.length;
+function actualizarTotalFila(index) {
+  const totalCell = document.getElementById(`total-${index}`);
+  if (totalCell && currentProducts[index]) {
+    const total = calcularTotal(currentProducts[index]);
+    totalCell.textContent = `Q ${total.toFixed(2)}`;
+  }
+}
+
+function actualizarTotalGeneral() {
+  let totalGeneral = 0;
   
-  if (el.scannedCount) {
-    el.scannedCount.textContent = String(count);
-  }
-  if (el.scannedCount2) {
-    el.scannedCount2.textContent = String(count);
-  }
-  if (el.btnFinishScanning) {
-    el.btnFinishScanning.style.display = count > 0 ? "" : "none";
-  }
+  currentProducts.forEach((producto) => {
+    totalGeneral += calcularTotal(producto);
+  });
   
-  // Actualizar lista de productos escaneados
-  if (el.scannedProductsList && el.scannedProductsContent) {
-    if (count > 0) {
-      el.scannedProductsList.style.display = "";
-      el.scannedProductsContent.innerHTML = currentProducts
-        .map((p, i) => `<div style="padding: 3px 0; color: var(--muted);">${i + 1}. ${escapeHtml(p.nombre)}</div>`)
-        .join("");
-    } else {
-      el.scannedProductsList.style.display = "none";
-    }
+  if (el.totalGeneral) {
+    el.totalGeneral.textContent = `Q ${totalGeneral.toFixed(2)}`;
   }
+}
+
+/* ========= Modal Producto Encontrado ========= */
+function mostrarProductoEncontrado(producto) {
+  productoEscaneado = producto;
+  
+  el.productoNombre.textContent = producto.nombre;
+  el.productoCodigo.textContent = producto.codigo;
+  el.productoPrecio.textContent = `Q ${producto.precioUnitario.toFixed(2)}`;
+  
+  el.productoEncontradoModal.classList.add("modal--open");
+  el.productoEncontradoModal.setAttribute("aria-hidden", "false");
+}
+
+function cerrarProductoEncontrado() {
+  el.productoEncontradoModal.classList.remove("modal--open");
+  el.productoEncontradoModal.setAttribute("aria-hidden", "true");
+  productoEscaneado = null;
+}
+
+function agregarProductoATabla() {
+  if (!productoEscaneado) return;
+  
+  // Agregar con valores iniciales
+  productoEscaneado.cantidad = 1;
+  productoEscaneado.precioManual = 0;
+  currentProducts.push(productoEscaneado);
+  
+  toast(`✓ Producto agregado: ${productoEscaneado.nombre}`, "info");
+  
+  cerrarProductoEncontrado();
+  renderTablaProductos();
+}
+
+function noAgregarProducto() {
+  toast("Producto no agregado", "info");
+  cerrarProductoEncontrado();
 }
 
 async function openScanner() {
-  // Limpiar productos anteriores al abrir el escáner
-  currentProducts = [];
-  pendingQRConfirmation = null;
-  isWaitingConfirmation = false;
-  hideQRConfirmation();
-  updateScannedCount();
-  
   el.scannerModal.classList.add("modal--open");
   el.scannerModal.setAttribute("aria-hidden", "false");
 
@@ -1056,69 +1093,10 @@ async function openScanner() {
   }
 }
 
-async function closeScanner() {
+function closeScanner() {
   stopCamera();
   el.scannerModal.classList.remove("modal--open");
   el.scannerModal.setAttribute("aria-hidden", "true");
-  
-  // Si hay productos escaneados, abrir el modal de productos
-  if (currentProducts.length > 0) {
-    await processSavedProducts();
-  }
-}
-
-async function processSavedProducts() {
-  if (currentProducts.length === 0) return;
-  
-  // Abrir el modal de productos
-  const result = await openProductsModal();
-  
-  if (result == null) {
-    // Usuario canceló, limpiar productos
-    currentProducts = [];
-    toast("Cancelado.", "info");
-    renderPending();
-    return;
-  }
-
-  // Preparar el array de registros para enviar
-  const fecha = nowIsoGuatemala();
-  const registros = currentProducts.map(p => ({
-    codigo: p.codigo,
-    cantidad: p.cantidad,
-    fecha: fecha,
-    precio_manual: p.precioManual || 0,
-  }));
-
-  // Limpiar productos actuales
-  currentProducts = [];
-
-  // Si no hay internet, se guarda en localStorage.
-  if (!navigator.onLine) {
-    addPendingMovimientos(registros);
-    renderPending();
-    toast("Guardado sin internet (pendiente).");
-    return;
-  }
-
-  // Con internet: intenta subir.
-  try {
-    toast("Subiendo…");
-    const out = await uploadMovimientos(registros);
-    if (out.ok) {
-      toast("Subido OK.");
-      savePending();
-      renderPending();
-    } else {
-      addPendingMovimientos(registros);
-      renderPending();
-      toast(`No se pudo subir (respuesta: ${String(out.text).trim().slice(0, 60) || out.status}). Guardado pendiente.`, "warn");
-    }
-  } catch (e) {
-    addPendingMovimientos(registros);
-    renderPending();
-    toast("Error de red. Guardado pendiente.", "warn");
-  }
 }
 
 /* ========= Ventas ========= */
@@ -1371,36 +1349,22 @@ function setMode(nextMode) {
 el.modeVentas?.addEventListener("click", () => setMode("ventas"));
 el.modeDevoluciones?.addEventListener("click", () => setMode("devoluciones"));
 
-el.btnOpenScanner.addEventListener("click", openScanner);
-el.scannerBackdrop.addEventListener("click", () => {
-  if (currentProducts.length > 0) {
-    const confirm = window.confirm(`Tienes ${currentProducts.length} producto(s) escaneado(s). ¿Deseas cancelar sin guardar?`);
-    if (!confirm) return;
-    currentProducts = [];
-  }
-  closeScanner();
-});
-el.btnCloseScanner.addEventListener("click", () => {
-  if (currentProducts.length > 0) {
-    const confirm = window.confirm(`Tienes ${currentProducts.length} producto(s) escaneado(s). ¿Deseas cancelar sin guardar?`);
-    if (!confirm) return;
-    currentProducts = [];
-  }
-  closeScanner();
-});
-el.btnStopCamera.addEventListener("click", () => {
-  if (currentProducts.length > 0) {
-    const confirm = window.confirm(`Tienes ${currentProducts.length} producto(s) escaneado(s). ¿Deseas cancelar sin guardar?`);
-    if (!confirm) return;
-    currentProducts = [];
-  }
-  stopCamera();
-  el.scannerModal.classList.remove("modal--open");
-  el.scannerModal.setAttribute("aria-hidden", "true");
-});
-el.btnFinishScanning?.addEventListener("click", closeScanner);
+// Botón principal: Crear Venta
+el.btnCrearVenta?.addEventListener("click", abrirModalVenta);
 
-el.btnToggleFlash.addEventListener("click", async () => {
+// Modal de Venta
+el.btnCloseVenta?.addEventListener("click", cerrarModalVenta);
+el.btnVentaCancel?.addEventListener("click", cerrarModalVenta);
+el.ventaBackdrop?.addEventListener("click", cerrarModalVenta);
+el.btnVentaSave?.addEventListener("click", guardarVenta);
+el.btnAgregarProducto?.addEventListener("click", openScanner);
+
+// Scanner
+el.scannerBackdrop?.addEventListener("click", closeScanner);
+el.btnCloseScanner?.addEventListener("click", closeScanner);
+el.btnStopCamera?.addEventListener("click", closeScanner);
+
+el.btnToggleFlash?.addEventListener("click", async () => {
   try {
     await setTorch(!torchOn);
   } catch {
@@ -1408,8 +1372,10 @@ el.btnToggleFlash.addEventListener("click", async () => {
   }
 });
 
-el.btnAcceptQR?.addEventListener("click", acceptQR);
-el.btnRejectQR?.addEventListener("click", rejectQR);
+// Modal Producto Encontrado
+el.btnNoAgregar?.addEventListener("click", noAgregarProducto);
+el.btnAgregarConfirm?.addEventListener("click", agregarProductoATabla);
+el.productoEncontradoBackdrop?.addEventListener("click", cerrarProductoEncontrado);
 
 el.btnToggleTheme?.addEventListener("click", toggleTheme);
 
