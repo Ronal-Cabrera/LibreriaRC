@@ -909,13 +909,7 @@ function renderTablaProductos() {
     const row = document.createElement("tr");
     row.style.borderBottom = "1px solid var(--line)";
     
-    // Nombre
-    const tdNombre = document.createElement("td");
-    tdNombre.style.padding = "0.75rem";
-    tdNombre.textContent = producto.nombre;
-    row.appendChild(tdNombre);
-    
-    // Cantidad (editable)
+    // Cantidad (editable) - PRIMERA COLUMNA
     const tdCantidad = document.createElement("td");
     tdCantidad.style.padding = "0.75rem";
     tdCantidad.style.textAlign = "center";
@@ -941,18 +935,20 @@ function renderTablaProductos() {
     tdCantidad.appendChild(inputCantidad);
     row.appendChild(tdCantidad);
     
-    // Precio Unitario
+    // Precio Unitario - SEGUNDA COLUMNA (con nowrap)
     const tdPrecio = document.createElement("td");
     tdPrecio.style.padding = "0.75rem";
     tdPrecio.style.textAlign = "right";
     tdPrecio.style.fontSize = "14px";
+    tdPrecio.style.whiteSpace = "nowrap";
     tdPrecio.textContent = `Q ${producto.precioUnitario.toFixed(2)}`;
     row.appendChild(tdPrecio);
     
-    // Precio Manual (editable)
+    // Precio Manual (editable) - TERCERA COLUMNA (con nowrap)
     const tdPrecioManual = document.createElement("td");
     tdPrecioManual.style.padding = "0.75rem";
     tdPrecioManual.style.textAlign = "right";
+    tdPrecioManual.style.whiteSpace = "nowrap";
     const inputPrecioManual = document.createElement("input");
     inputPrecioManual.type = "number";
     inputPrecioManual.inputMode = "decimal";
@@ -977,18 +973,19 @@ function renderTablaProductos() {
     tdPrecioManual.appendChild(inputPrecioManual);
     row.appendChild(tdPrecioManual);
     
-    // Total
+    // Total - CUARTA COLUMNA (con nowrap)
     const tdTotal = document.createElement("td");
     tdTotal.style.padding = "0.75rem";
     tdTotal.style.textAlign = "right";
     tdTotal.style.fontWeight = "800";
     tdTotal.style.color = "var(--primary)";
     tdTotal.style.fontSize = "15px";
+    tdTotal.style.whiteSpace = "nowrap";
     tdTotal.id = `total-${index}`;
     tdTotal.textContent = `Q ${calcularTotal(producto).toFixed(2)}`;
     row.appendChild(tdTotal);
     
-    // Botón eliminar
+    // Botón eliminar - QUINTA COLUMNA
     const tdEliminar = document.createElement("td");
     tdEliminar.style.padding = "0.75rem";
     tdEliminar.style.textAlign = "center";
@@ -1004,6 +1001,12 @@ function renderTablaProductos() {
     });
     tdEliminar.appendChild(btnEliminar);
     row.appendChild(tdEliminar);
+    
+    // Nombre - ÚLTIMA COLUMNA
+    const tdNombre = document.createElement("td");
+    tdNombre.style.padding = "0.75rem";
+    tdNombre.textContent = producto.nombre;
+    row.appendChild(tdNombre);
     
     el.productsTableBody.appendChild(row);
   });

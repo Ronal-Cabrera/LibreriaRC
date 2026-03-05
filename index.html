@@ -178,12 +178,12 @@
             <table id="productsTable" style="width: 100%; border-collapse: collapse; margin-bottom: 1rem;">
               <thead>
                 <tr style="background: var(--card2); border-bottom: 2px solid var(--line);">
-                  <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Nombre</th>
                   <th style="padding: 0.75rem; text-align: center; font-weight: 600; width: 100px;">Cantidad</th>
-                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 90px;">Precio</th>
-                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 110px;">P. Manual</th>
-                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 90px;">Total</th>
+                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 90px; white-space: nowrap;">Precio</th>
+                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 110px; white-space: nowrap;">P. Manual</th>
+                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 90px; white-space: nowrap;">Total</th>
                   <th style="padding: 0.75rem; text-align: center; font-weight: 600; width: 60px;">-</th>
+                  <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Nombre</th>
                 </tr>
               </thead>
               <tbody id="productsTableBody">
@@ -199,7 +199,7 @@
           <!-- Total General -->
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding: 14px; background: rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.2); border-radius: 10px;">
             <div style="font-weight: 700; font-size: 15px; color: var(--muted);">Total General:</div>
-            <div id="totalGeneral" style="font-weight: 900; font-size: 22px; color: var(--primary);">Q 0.00</div>
+            <div id="totalGeneral" style="font-weight: 900; font-size: 22px; color: var(--primary); white-space: nowrap;">Q 0.00</div>
           </div>
 
           <!-- Botones de acción -->
