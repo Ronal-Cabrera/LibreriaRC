@@ -6,11 +6,11 @@ const VERSION_URL = "./version.json";
 const STORAGE_APP_VERSION = "qr_app_version_v1";
 
 const SALES_UPLOAD_BASE_URL =
-  "https://script.google.com/macros/s/AKfycbwRT3euqtNmjqVQVEJ0B3jOrbQwQou-_TCFI3iaDABHBE72_EFYaBxW1aaOMS_Zox02/exec";
+  "https://script.google.com/macros/s/AKfycbw-5i9LSL5vCapu7Q9ec_GG6z3FkzF7koiRR_8fjy1KNcn2ro3ORn7G54V2zUT-jNXv/exec";
 
 // AJUSTA ESTO: URL para devoluciones (puede ser otro script o el mismo con otra acción).
 const RETURNS_UPLOAD_BASE_URL =
-  "https://script.google.com/macros/s/AKfycbwRT3euqtNmjqVQVEJ0B3jOrbQwQou-_TCFI3iaDABHBE72_EFYaBxW1aaOMS_Zox02/exec";
+  "https://script.google.com/macros/s/AKfycbw-5i9LSL5vCapu7Q9ec_GG6z3FkzF7koiRR_8fjy1KNcn2ro3ORn7G54V2zUT-jNXv/exec";
 
 const MODE_CONFIG = {
   ventas: {
@@ -214,7 +214,6 @@ const el = {
 let mode = loadMode();
 let pending = loadPending();
 let activeView = "pendientes"; // "pendientes" | "ventas" | "stock"
-let stockOrden = 3; // 1=comprado, 2=vendido, 3=disponible
 let stream = null;
 let detector = null;
 let scanning = false;
@@ -934,13 +933,7 @@ async function loadStock() {
   el.stockBody.innerHTML = "";
 
   try {
-    const u = new URL(STOCK_URL);
-    if (stockOrden === 1 || stockOrden === 2 || stockOrden === 3) {
-      u.searchParams.set("orden", String(stockOrden));
-    }
-    u.searchParams.set("t", String(Date.now()));
-
-    const res = await fetch(u.toString(), { cache: "no-store" });
+    const res = await fetch(`${STOCK_URL}&t=${Date.now()}`, { cache: "no-store" });
     const text = await res.text();
 
     if (looksLikeHtml(text)) {
@@ -958,9 +951,7 @@ async function loadStock() {
       return;
     }
 
-    const ordenLabel =
-      stockOrden === 1 ? "comprado (desc)" : stockOrden === 2 ? "vendido (desc)" : stockOrden === 3 ? "disponible (desc)" : "sin orden";
-    el.stockNotice.textContent = `Stock cargado. Total: ${maybeJson.total ?? data.length} · Orden: ${ordenLabel}`;
+    el.stockNotice.textContent = `Stock cargado. Total: ${maybeJson.total ?? data.length}`;
 
     const rows = data
       .map((r) => ({
@@ -970,8 +961,7 @@ async function loadStock() {
         vendido: Number(r?.vendido ?? 0),
         disponible: Number(r?.disponible ?? 0),
       }))
-      // No reordenamos acá: el orden viene del backend (orden=1/2/3).
-      ;
+      .sort((a, b) => b.disponible - a.disponible);
 
     const tableHtml = `
       <div style="overflow:auto; padding: 16px;">
@@ -980,15 +970,9 @@ async function loadStock() {
             <tr>
               <th style="text-align:left; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12);">Código</th>
               <th style="text-align:left; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12);">Nombre</th>
-              <th data-orden="1" style="text-align:right; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12); cursor:pointer; user-select:none;">
-                Comprado${stockOrden === 1 ? " ▾" : ""}
-              </th>
-              <th data-orden="2" style="text-align:right; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12); cursor:pointer; user-select:none;">
-                Vendido${stockOrden === 2 ? " ▾" : ""}
-              </th>
-              <th data-orden="3" style="text-align:right; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12); cursor:pointer; user-select:none;">
-                Disponible${stockOrden === 3 ? " ▾" : ""}
-              </th>
+              <th style="text-align:right; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12);">Comprado</th>
+              <th style="text-align:right; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12);">Vendido</th>
+              <th style="text-align:right; padding:10px 8px; border-bottom: 1px solid rgba(255,255,255,.12);">Disponible</th>
             </tr>
           </thead>
           <tbody>
@@ -1019,16 +1003,6 @@ async function loadStock() {
     `;
 
     el.stockBody.innerHTML = tableHtml;
-
-    // Orden vía click en el nombre de columna (<th>).
-    el.stockBody.querySelectorAll("th[data-orden]").forEach((th) => {
-      th.addEventListener("click", async () => {
-        const ord = Number(th.getAttribute("data-orden") || 0);
-        if (ord !== 1 && ord !== 2 && ord !== 3) return;
-        stockOrden = ord;
-        await loadStock();
-      });
-    });
   } catch (err) {
     el.stockNotice.textContent = "Error cargando stock (red/CORS/endpoint).";
     el.stockBody.innerHTML = `<pre style="color: #ff6b6b;">${escapeHtml(String(err))}</pre>`;
