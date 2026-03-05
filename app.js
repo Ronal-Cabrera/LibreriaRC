@@ -34,6 +34,7 @@ const STOCK_URL = `${SALES_UPLOAD_BASE_URL}?accion=stock`;
 const STORAGE_MODE = "qr_mode_v1";
 const STORAGE_KEY_PREFIX = "qr_pending_uploads_v1";
 const STORAGE_LAST_SCAN_PREFIX = "qr_last_scan_v1";
+const STORAGE_THEME = "qr_theme_v1";
 
 /* ========= Update / Cache Bust ========= */
 function updateModalHtml({ currentVersion, serverVersion }) {
@@ -164,6 +165,8 @@ async function checkForUpdateAndMaybeForceRefresh() {
 
 /* ========= DOM ========= */
 const el = {
+  btnToggleTheme: document.getElementById("btnToggleTheme"),
+  themeIcon: document.getElementById("themeIcon"),
   netStatus: document.getElementById("netStatus"),
   appTitle: document.getElementById("appTitle"),
   tabVentas: document.getElementById("tabVentas"),
@@ -197,11 +200,18 @@ const el = {
   btnStopCamera: document.getElementById("btnStopCamera"),
   btnFinishScanning: document.getElementById("btnFinishScanning"),
   scannedCount: document.getElementById("scannedCount"),
+  scannedCount2: document.getElementById("scannedCount2"),
   scannedProductsList: document.getElementById("scannedProductsList"),
   scannedProductsContent: document.getElementById("scannedProductsContent"),
   btnToggleFlash: document.getElementById("btnToggleFlash"),
   scannerHelp: document.getElementById("scannerHelp"),
   video: document.getElementById("video"),
+  qrConfirm: document.getElementById("qrConfirm"),
+  qrConfirmName: document.getElementById("qrConfirmName"),
+  qrConfirmCode: document.getElementById("qrConfirmCode"),
+  qrConfirmPrice: document.getElementById("qrConfirmPrice"),
+  btnAcceptQR: document.getElementById("btnAcceptQR"),
+  btnRejectQR: document.getElementById("btnRejectQR"),
 
   productsModal: document.getElementById("productsModal"),
   productsBackdrop: document.getElementById("productsBackdrop"),
@@ -227,6 +237,8 @@ let torchOn = false;
 let scanCanvas = null;
 let scanCtx = null;
 let currentProducts = []; // Array de productos escaneados en la sesión actual
+let pendingQRConfirmation = null; // Producto pendiente de confirmación
+let isWaitingConfirmation = false; // Flag para pausar el escaneo
 
 /* ========= Utils ========= */
 function nowIso() {
@@ -350,6 +362,41 @@ function saveMode() {
 
 function modeLabel() {
   return MODE_CONFIG[mode]?.label || "Ventas";
+}
+
+/* ========= Theme ========= */
+function loadTheme() {
+  try {
+    const saved = localStorage.getItem(STORAGE_THEME);
+    return saved === "dark" ? "dark" : "light"; // Por defecto: light
+  } catch {
+    return "light";
+  }
+}
+
+function saveTheme(theme) {
+  try {
+    localStorage.setItem(STORAGE_THEME, theme);
+  } catch {
+    // ignore
+  }
+}
+
+function applyTheme(theme) {
+  if (theme === "dark") {
+    document.documentElement.setAttribute("data-theme", "dark");
+    if (el.themeIcon) el.themeIcon.textContent = "☀️";
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+    if (el.themeIcon) el.themeIcon.textContent = "🌙";
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme");
+  const next = current === "dark" ? "light" : "dark";
+  applyTheme(next);
+  saveTheme(next);
 }
 
 /* ========= Views ========= */
@@ -609,7 +656,7 @@ function renderProductsTable() {
     inputCantidad.style.padding = "8px";
     inputCantidad.style.borderRadius = "8px";
     inputCantidad.style.border = "1px solid var(--line)";
-    inputCantidad.style.background = "rgba(0,0,0,.16)";
+    inputCantidad.style.background = "var(--input-bg)";
     inputCantidad.style.color = "var(--text)";
     inputCantidad.style.fontWeight = "800";
     inputCantidad.style.textAlign = "center";
@@ -642,7 +689,7 @@ function renderProductsTable() {
     inputPrecioManual.style.padding = "8px";
     inputPrecioManual.style.borderRadius = "8px";
     inputPrecioManual.style.border = "1px solid var(--line)";
-    inputPrecioManual.style.background = "rgba(0,0,0,.16)";
+    inputPrecioManual.style.background = "var(--input-bg)";
     inputPrecioManual.style.color = "var(--text)";
     inputPrecioManual.style.fontWeight = "800";
     inputPrecioManual.style.textAlign = "right";
@@ -657,8 +704,8 @@ function renderProductsTable() {
     const tdTotal = document.createElement("td");
     tdTotal.style.padding = "0.75rem";
     tdTotal.style.textAlign = "right";
-    tdTotal.style.fontWeight = "900";
-    tdTotal.style.color = "#4ade80";
+    tdTotal.style.fontWeight = "800";
+    tdTotal.style.color = "var(--primary)";
     tdTotal.id = `total-${index}`;
     tdTotal.textContent = `Q ${calcularTotal(producto).toFixed(2)}`;
     row.appendChild(tdTotal);
@@ -874,29 +921,24 @@ async function scanLoop() {
 
   try {
     const codes = await det.detect(scanCanvas);
-    if (codes && codes.length) {
+    if (codes && codes.length && !isWaitingConfirmation) {
       const raw = codes[0]?.rawValue || "";
       
       // Parsear el QR
       const parsedProduct = parseQRCode(raw);
       if (!parsedProduct) {
-        toast("Formato de QR inválido. Debe tener formato: codigo*nombre*cantidad*precio", "bad");
+        toast("Formato de QR inválido", "bad");
         scanLoopHandle = requestAnimationFrame(scanLoop);
         return;
       }
 
-      // Agregar el producto a la lista actual con cantidad inicial 1
-      parsedProduct.cantidad = 1;
-      parsedProduct.precioManual = 0;
-      currentProducts.push(parsedProduct);
-      
+      // Pausar escaneo y mostrar confirmación
+      isWaitingConfirmation = true;
+      pendingQRConfirmation = parsedProduct;
       setLastScan(raw);
-      toast(`Producto agregado: ${parsedProduct.nombre}`, "info");
+      showQRConfirmation(parsedProduct);
       
-      // Actualizar contador de productos escaneados
-      updateScannedCount();
-      
-      // Continuar escaneando para permitir múltiples productos
+      // Continuar el loop pero sin detectar hasta que se confirme
       scanLoopHandle = requestAnimationFrame(scanLoop);
       return;
     }
@@ -907,20 +949,74 @@ async function scanLoop() {
   scanLoopHandle = requestAnimationFrame(scanLoop);
 }
 
+function showQRConfirmation(product) {
+  if (!el.qrConfirm) return;
+  
+  el.qrConfirmName.textContent = product.nombre;
+  el.qrConfirmCode.textContent = product.codigo;
+  el.qrConfirmPrice.textContent = `Q ${product.precioUnitario.toFixed(2)}`;
+  
+  el.qrConfirm.classList.add("qr-confirm--show");
+  el.scannerHelp.textContent = "¿Agregar este producto?";
+}
+
+function hideQRConfirmation() {
+  if (!el.qrConfirm) return;
+  el.qrConfirm.classList.remove("qr-confirm--show");
+  el.scannerHelp.textContent = "Apunta al código QR dentro del recuadro.";
+}
+
+function acceptQR() {
+  if (!pendingQRConfirmation) return;
+  
+  // Agregar el producto a la lista
+  pendingQRConfirmation.cantidad = 1;
+  pendingQRConfirmation.precioManual = 0;
+  currentProducts.push(pendingQRConfirmation);
+  
+  toast(`✓ Agregado: ${pendingQRConfirmation.nombre}`, "info");
+  
+  // Limpiar y continuar
+  pendingQRConfirmation = null;
+  isWaitingConfirmation = false;
+  hideQRConfirmation();
+  updateScannedCount();
+}
+
+function rejectQR() {
+  if (!pendingQRConfirmation) {
+    hideQRConfirmation();
+    isWaitingConfirmation = false;
+    return;
+  }
+  
+  toast("Producto rechazado. Escanea otro.", "info");
+  
+  // Limpiar y continuar
+  pendingQRConfirmation = null;
+  isWaitingConfirmation = false;
+  hideQRConfirmation();
+}
+
 function updateScannedCount() {
+  const count = currentProducts.length;
+  
   if (el.scannedCount) {
-    el.scannedCount.textContent = String(currentProducts.length);
+    el.scannedCount.textContent = String(count);
+  }
+  if (el.scannedCount2) {
+    el.scannedCount2.textContent = String(count);
   }
   if (el.btnFinishScanning) {
-    el.btnFinishScanning.style.display = currentProducts.length > 0 ? "" : "none";
+    el.btnFinishScanning.style.display = count > 0 ? "" : "none";
   }
   
   // Actualizar lista de productos escaneados
   if (el.scannedProductsList && el.scannedProductsContent) {
-    if (currentProducts.length > 0) {
+    if (count > 0) {
       el.scannedProductsList.style.display = "";
       el.scannedProductsContent.innerHTML = currentProducts
-        .map((p, i) => `<div style="padding: 4px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.1);">${i + 1}. ${escapeHtml(p.nombre)} - Q${p.precioUnitario.toFixed(2)}</div>`)
+        .map((p, i) => `<div style="padding: 3px 0; color: var(--muted);">${i + 1}. ${escapeHtml(p.nombre)}</div>`)
         .join("");
     } else {
       el.scannedProductsList.style.display = "none";
@@ -931,6 +1027,9 @@ function updateScannedCount() {
 async function openScanner() {
   // Limpiar productos anteriores al abrir el escáner
   currentProducts = [];
+  pendingQRConfirmation = null;
+  isWaitingConfirmation = false;
+  hideQRConfirmation();
   updateScannedCount();
   
   el.scannerModal.classList.add("modal--open");
@@ -947,7 +1046,7 @@ async function openScanner() {
     el.scannerHelp.textContent = "Iniciando cámara…";
     await startCamera();
     enableTorchButtonIfPossible();
-    el.scannerHelp.textContent = "Apunta al código QR dentro del recuadro. Escanea todos los productos que necesites.";
+    el.scannerHelp.textContent = "Apunta al código QR dentro del recuadro.";
     scanning = true;
     scanLoopHandle = requestAnimationFrame(scanLoop);
   } catch (e) {
@@ -1309,6 +1408,11 @@ el.btnToggleFlash.addEventListener("click", async () => {
   }
 });
 
+el.btnAcceptQR?.addEventListener("click", acceptQR);
+el.btnRejectQR?.addEventListener("click", rejectQR);
+
+el.btnToggleTheme?.addEventListener("click", toggleTheme);
+
 el.btnRetryAll.addEventListener("click", retryAll);
 
 el.btnClearLocal.addEventListener("click", () => {
@@ -1347,6 +1451,10 @@ function registerSW() {
 
 // Importante: correr esto lo más temprano posible para detectar versión nueva.
 checkForUpdateAndMaybeForceRefresh();
+
+// Aplicar tema guardado
+const savedTheme = loadTheme();
+applyTheme(savedTheme);
 
 setNetStatus();
 applyModeToUI();
