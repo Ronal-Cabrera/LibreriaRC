@@ -143,45 +143,59 @@
             Apunta al código QR dentro del recuadro.
           </div>
 
+          <div id="scannedProductsList" style="max-height: 150px; overflow-y: auto; margin: 10px 0; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px; display: none;">
+            <div style="font-weight: 800; margin-bottom: 8px; color: #4ade80;">Productos escaneados:</div>
+            <div id="scannedProductsContent"></div>
+          </div>
+
           <div class="scanner__actions">
             <button class="btn btn--ghost" id="btnToggleFlash" type="button" disabled>
               Flash
             </button>
-            <button class="btn btn--danger" id="btnStopCamera" type="button">Detener cámara</button>
+            <button class="btn btn--primary" id="btnFinishScanning" type="button" style="display: none;">
+              Finalizar (<span id="scannedCount">0</span>)
+            </button>
+            <button class="btn btn--danger" id="btnStopCamera" type="button">Cancelar</button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Cantidad Modal -->
-    <div class="modal" id="qtyModal" aria-hidden="true" role="dialog" aria-label="Cantidad">
-      <div class="modal__backdrop" id="qtyBackdrop"></div>
-      <div class="modal__sheet" style="max-width: 520px;">
+    <!-- Tabla de Productos Modal -->
+    <div class="modal" id="productsModal" aria-hidden="true" role="dialog" aria-label="Productos">
+      <div class="modal__backdrop" id="productsBackdrop"></div>
+      <div class="modal__sheet" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
         <div class="modal__header">
-          <div class="modal__title">Cantidad</div>
-          <button class="iconBtn" id="btnCloseQty" type="button" aria-label="Cerrar">✕</button>
+          <div class="modal__title">Productos Escaneados</div>
+          <button class="iconBtn" id="btnCloseProducts" type="button" aria-label="Cerrar">✕</button>
         </div>
 
         <div style="padding: 14px 16px;">
-          <div style="color: var(--muted); font-size: 13px; margin-bottom: 10px;">
-            Código escaneado:
-            <span id="qtyCode" style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color: var(--text); font-weight: 800;"></span>
+          <div style="overflow-x: auto;">
+            <table id="productsTable" style="width: 100%; border-collapse: collapse; margin-bottom: 1rem;">
+              <thead>
+                <tr style="background: rgba(255,255,255,0.05); border-bottom: 2px solid rgba(255,255,255,0.1);">
+                  <th style="padding: 0.75rem; text-align: left; font-weight: 600;">Nombre</th>
+                  <th style="padding: 0.75rem; text-align: center; font-weight: 600; width: 120px;">Cantidad</th>
+                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 100px;">Precio Unit.</th>
+                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 120px;">Precio Manual</th>
+                  <th style="padding: 0.75rem; text-align: right; font-weight: 600; width: 100px;">Total</th>
+                </tr>
+              </thead>
+              <tbody id="productsTableBody">
+                <!-- Filas dinámicas -->
+              </tbody>
+            </table>
           </div>
 
-          <label for="qtyInput" style="display:block; font-weight: 800; margin-bottom: 8px;">Cantidad</label>
-          <input
-            id="qtyInput"
-            type="number"
-            inputmode="numeric"
-            min="1"
-            step="1"
-            placeholder="Ej: 1"
-            style="width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(0,0,0,.16); color: var(--text); font-weight: 800;"
-          />
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+            <div style="font-weight: 800; font-size: 16px;">Total General:</div>
+            <div id="totalGeneral" style="font-weight: 900; font-size: 20px; color: #4ade80;">Q 0.00</div>
+          </div>
 
-          <div style="display:flex; gap: 10px; justify-content:flex-end; margin-top: 14px; flex-wrap: wrap;">
-            <button class="btn btn--ghost" id="btnQtyCancel" type="button">Cancelar</button>
-            <button class="btn btn--primary" id="btnQtySave" type="button">Guardar</button>
+          <div style="display:flex; gap: 10px; justify-content:flex-end; flex-wrap: wrap;">
+            <button class="btn btn--ghost" id="btnProductsCancel" type="button">Cancelar</button>
+            <button class="btn btn--primary" id="btnProductsSave" type="button">Guardar</button>
           </div>
         </div>
       </div>

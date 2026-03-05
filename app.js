@@ -6,11 +6,11 @@ const VERSION_URL = "./version.json";
 const STORAGE_APP_VERSION = "qr_app_version_v1";
 
 const SALES_UPLOAD_BASE_URL =
-  "https://script.google.com/macros/s/AKfycbw-5i9LSL5vCapu7Q9ec_GG6z3FkzF7koiRR_8fjy1KNcn2ro3ORn7G54V2zUT-jNXv/exec";
+  "https://script.google.com/macros/s/AKfycbwZvL3jYOXDCh2XnPPFk9y7T-y9osvrzEFDWIbpuwfZEDGTQGViTpldj3MRglyk7oJP/exec";
 
 // AJUSTA ESTO: URL para devoluciones (puede ser otro script o el mismo con otra acción).
 const RETURNS_UPLOAD_BASE_URL =
-  "https://script.google.com/macros/s/AKfycbw-5i9LSL5vCapu7Q9ec_GG6z3FkzF7koiRR_8fjy1KNcn2ro3ORn7G54V2zUT-jNXv/exec";
+  "https://script.google.com/macros/s/AKfycbwZvL3jYOXDCh2XnPPFk9y7T-y9osvrzEFDWIbpuwfZEDGTQGViTpldj3MRglyk7oJP/exec";
 
 const MODE_CONFIG = {
   ventas: {
@@ -195,17 +195,21 @@ const el = {
   scannerBackdrop: document.getElementById("scannerBackdrop"),
   btnCloseScanner: document.getElementById("btnCloseScanner"),
   btnStopCamera: document.getElementById("btnStopCamera"),
+  btnFinishScanning: document.getElementById("btnFinishScanning"),
+  scannedCount: document.getElementById("scannedCount"),
+  scannedProductsList: document.getElementById("scannedProductsList"),
+  scannedProductsContent: document.getElementById("scannedProductsContent"),
   btnToggleFlash: document.getElementById("btnToggleFlash"),
   scannerHelp: document.getElementById("scannerHelp"),
   video: document.getElementById("video"),
 
-  qtyModal: document.getElementById("qtyModal"),
-  qtyBackdrop: document.getElementById("qtyBackdrop"),
-  btnCloseQty: document.getElementById("btnCloseQty"),
-  btnQtyCancel: document.getElementById("btnQtyCancel"),
-  btnQtySave: document.getElementById("btnQtySave"),
-  qtyInput: document.getElementById("qtyInput"),
-  qtyCode: document.getElementById("qtyCode"),
+  productsModal: document.getElementById("productsModal"),
+  productsBackdrop: document.getElementById("productsBackdrop"),
+  btnCloseProducts: document.getElementById("btnCloseProducts"),
+  btnProductsCancel: document.getElementById("btnProductsCancel"),
+  btnProductsSave: document.getElementById("btnProductsSave"),
+  productsTableBody: document.getElementById("productsTableBody"),
+  totalGeneral: document.getElementById("totalGeneral"),
 
   toast: document.getElementById("toast"),
 };
@@ -222,6 +226,7 @@ let lastDetectAt = 0;
 let torchOn = false;
 let scanCanvas = null;
 let scanCtx = null;
+let currentProducts = []; // Array de productos escaneados en la sesión actual
 
 /* ========= Utils ========= */
 function nowIso() {
@@ -412,9 +417,18 @@ function renderPending() {
 
     const code = document.createElement("div");
     code.className = "item__code";
-    const shownCode = item.codigo ?? item.code ?? "—";
-    const shownQty = item.cantidad ?? "—";
-    code.textContent = `${shownCode}  × ${shownQty}`;
+    
+    // Mostrar información de los registros
+    if (item.registros && Array.isArray(item.registros)) {
+      const count = item.registros.length;
+      const codigos = item.registros.map(r => r.codigo).join(", ");
+      code.textContent = `${count} producto${count > 1 ? 's' : ''}: ${codigos}`;
+    } else {
+      // Formato antiguo (compatibilidad)
+      const shownCode = item.codigo ?? item.code ?? "—";
+      const shownQty = item.cantidad ?? "—";
+      code.textContent = `${shownCode}  × ${shownQty}`;
+    }
 
     const meta = document.createElement("div");
     meta.className = "item__meta";
@@ -474,18 +488,16 @@ function renderPending() {
 }
 
 /* ========= Upload ========= */
-function buildUploadUrl(payload) {
+function buildUploadUrl(registros) {
   const cfg = MODE_CONFIG[mode];
   const u = new URL(cfg.uploadBaseUrl);
   u.searchParams.set("accion", cfg.uploadAction);
-  u.searchParams.set("codigo", String(payload.codigo ?? ""));
-  u.searchParams.set("cantidad", String(payload.cantidad ?? ""));
-  u.searchParams.set("fecha", String(payload.fecha ?? ""));
+  u.searchParams.set("registros", JSON.stringify(registros));
   return u.toString();
 }
 
-async function uploadMovimiento(payload) {
-  const url = buildUploadUrl(payload);
+async function uploadMovimientos(registros) {
+  const url = buildUploadUrl(registros);
   const res = await fetch(url, {
     method: "GET",
     cache: "no-store",
@@ -504,12 +516,11 @@ function makeId() {
   }
 }
 
-function addPendingMovimiento(payload) {
+function addPendingMovimientos(registros) {
+  // Guardar como un grupo de registros
   pending.unshift({
     id: makeId(),
-    codigo: payload.codigo,
-    cantidad: payload.cantidad,
-    fecha: payload.fecha,
+    registros: registros, // Array de {codigo, cantidad, fecha, precio_manual}
     createdAt: nowIso(),
     lastAttemptAt: null,
     attempts: 0,
@@ -518,27 +529,162 @@ function addPendingMovimiento(payload) {
   return true;
 }
 
-function openQtyModal(code) {
-  if (!el.qtyModal) return Promise.resolve(null);
+/* ========= Parsear QR ========= */
+function parseQRCode(qrText) {
+  // Formato: a100003*CUADERNO CALIGRAFIA MONZA 2DO BASICO*1*17
+  // Formato: b10001*COMPAS ESCOLAR MAPED TRENDY*1*7.5
+  const parts = String(qrText || "").split("*");
+  if (parts.length < 4) return null;
 
-  el.qtyCode.textContent = String(code || "");
-  el.qtyInput.value = "1";
+  return {
+    codigo: parts[0].trim(),
+    nombre: parts[1].trim(),
+    cantidadPorPrecio: Number(parts[2]) || 1, // Cantidad por la que se divide el precio
+    precioUnitario: Number(parts[3]) || 0,
+  };
+}
 
-  el.qtyModal.classList.add("modal--open");
-  el.qtyModal.setAttribute("aria-hidden", "false");
+/* ========= Modal de Productos ========= */
+function calcularTotal(producto) {
+  const cantidad = Number(producto.cantidad) || 0;
+  const cantidadPorPrecio = Number(producto.cantidadPorPrecio) || 1;
+  const precioUnitario = Number(producto.precioUnitario) || 0;
+  const precioManual = Number(producto.precioManual) || 0;
 
-  // Focus al input para teclear rápido
-  window.setTimeout(() => el.qtyInput?.focus?.(), 0);
+  if (precioManual > 0) {
+    // Si hay precio manual, usar ese directamente
+    return precioManual;
+  }
+
+  // Fórmula: (cantidad / cantidadPorPrecio) * precioUnitario
+  return (cantidad / cantidadPorPrecio) * precioUnitario;
+}
+
+function actualizarTotales() {
+  let totalGeneral = 0;
+
+  currentProducts.forEach((producto, index) => {
+    const total = calcularTotal(producto);
+    totalGeneral += total;
+
+    // Actualizar el total en la fila
+    const totalCell = document.getElementById(`total-${index}`);
+    if (totalCell) {
+      totalCell.textContent = `Q ${total.toFixed(2)}`;
+    }
+  });
+
+  // Actualizar total general
+  if (el.totalGeneral) {
+    el.totalGeneral.textContent = `Q ${totalGeneral.toFixed(2)}`;
+  }
+}
+
+function renderProductsTable() {
+  if (!el.productsTableBody) return;
+
+  el.productsTableBody.innerHTML = "";
+
+  currentProducts.forEach((producto, index) => {
+    const row = document.createElement("tr");
+    row.style.borderBottom = "1px solid rgba(255,255,255,0.05)";
+
+    // Columna: Nombre
+    const tdNombre = document.createElement("td");
+    tdNombre.style.padding = "0.75rem";
+    tdNombre.textContent = producto.nombre;
+    row.appendChild(tdNombre);
+
+    // Columna: Cantidad (editable)
+    const tdCantidad = document.createElement("td");
+    tdCantidad.style.padding = "0.75rem";
+    tdCantidad.style.textAlign = "center";
+    const inputCantidad = document.createElement("input");
+    inputCantidad.type = "number";
+    inputCantidad.inputMode = "numeric";
+    inputCantidad.min = "1";
+    inputCantidad.step = "1";
+    inputCantidad.value = producto.cantidad;
+    inputCantidad.style.width = "80px";
+    inputCantidad.style.padding = "8px";
+    inputCantidad.style.borderRadius = "8px";
+    inputCantidad.style.border = "1px solid var(--line)";
+    inputCantidad.style.background = "rgba(0,0,0,.16)";
+    inputCantidad.style.color = "var(--text)";
+    inputCantidad.style.fontWeight = "800";
+    inputCantidad.style.textAlign = "center";
+    inputCantidad.addEventListener("input", (e) => {
+      producto.cantidad = Number(e.target.value) || 1;
+      actualizarTotales();
+    });
+    tdCantidad.appendChild(inputCantidad);
+    row.appendChild(tdCantidad);
+
+    // Columna: Precio Unitario
+    const tdPrecio = document.createElement("td");
+    tdPrecio.style.padding = "0.75rem";
+    tdPrecio.style.textAlign = "right";
+    tdPrecio.textContent = `Q ${producto.precioUnitario.toFixed(2)}`;
+    row.appendChild(tdPrecio);
+
+    // Columna: Precio Manual (editable)
+    const tdPrecioManual = document.createElement("td");
+    tdPrecioManual.style.padding = "0.75rem";
+    tdPrecioManual.style.textAlign = "right";
+    const inputPrecioManual = document.createElement("input");
+    inputPrecioManual.type = "number";
+    inputPrecioManual.inputMode = "decimal";
+    inputPrecioManual.min = "0";
+    inputPrecioManual.step = "0.01";
+    inputPrecioManual.value = producto.precioManual || "0";
+    inputPrecioManual.placeholder = "0";
+    inputPrecioManual.style.width = "100px";
+    inputPrecioManual.style.padding = "8px";
+    inputPrecioManual.style.borderRadius = "8px";
+    inputPrecioManual.style.border = "1px solid var(--line)";
+    inputPrecioManual.style.background = "rgba(0,0,0,.16)";
+    inputPrecioManual.style.color = "var(--text)";
+    inputPrecioManual.style.fontWeight = "800";
+    inputPrecioManual.style.textAlign = "right";
+    inputPrecioManual.addEventListener("input", (e) => {
+      producto.precioManual = Number(e.target.value) || 0;
+      actualizarTotales();
+    });
+    tdPrecioManual.appendChild(inputPrecioManual);
+    row.appendChild(tdPrecioManual);
+
+    // Columna: Total
+    const tdTotal = document.createElement("td");
+    tdTotal.style.padding = "0.75rem";
+    tdTotal.style.textAlign = "right";
+    tdTotal.style.fontWeight = "900";
+    tdTotal.style.color = "#4ade80";
+    tdTotal.id = `total-${index}`;
+    tdTotal.textContent = `Q ${calcularTotal(producto).toFixed(2)}`;
+    row.appendChild(tdTotal);
+
+    el.productsTableBody.appendChild(row);
+  });
+
+  actualizarTotales();
+}
+
+function openProductsModal() {
+  if (!el.productsModal) return Promise.resolve(null);
+
+  renderProductsTable();
+
+  el.productsModal.classList.add("modal--open");
+  el.productsModal.setAttribute("aria-hidden", "false");
 
   return new Promise((resolve) => {
     const cleanup = () => {
-      el.qtyModal.classList.remove("modal--open");
-      el.qtyModal.setAttribute("aria-hidden", "true");
-      el.btnQtySave?.removeEventListener("click", onSave);
-      el.btnQtyCancel?.removeEventListener("click", onCancel);
-      el.btnCloseQty?.removeEventListener("click", onCancel);
-      el.qtyBackdrop?.removeEventListener("click", onCancel);
-      el.qtyInput?.removeEventListener("keydown", onKey);
+      el.productsModal.classList.remove("modal--open");
+      el.productsModal.setAttribute("aria-hidden", "true");
+      el.btnProductsSave?.removeEventListener("click", onSave);
+      el.btnProductsCancel?.removeEventListener("click", onCancel);
+      el.btnCloseProducts?.removeEventListener("click", onCancel);
+      el.productsBackdrop?.removeEventListener("click", onCancel);
     };
 
     const onCancel = () => {
@@ -547,78 +693,21 @@ function openQtyModal(code) {
     };
 
     const onSave = () => {
-      const n = Number(el.qtyInput.value);
-      if (!Number.isFinite(n) || n <= 0) {
-        toast("Cantidad inválida.", "warn");
-        el.qtyInput.focus();
-        return;
-      }
       cleanup();
-      resolve(Math.floor(n));
+      resolve(currentProducts);
     };
 
-    const onKey = (ev) => {
-      if (ev.key === "Enter") onSave();
-      if (ev.key === "Escape") onCancel();
-    };
-
-    el.btnQtySave?.addEventListener("click", onSave);
-    el.btnQtyCancel?.addEventListener("click", onCancel);
-    el.btnCloseQty?.addEventListener("click", onCancel);
-    el.qtyBackdrop?.addEventListener("click", onCancel);
-    el.qtyInput?.addEventListener("keydown", onKey);
+    el.btnProductsSave?.addEventListener("click", onSave);
+    el.btnProductsCancel?.addEventListener("click", onCancel);
+    el.btnCloseProducts?.addEventListener("click", onCancel);
+    el.productsBackdrop?.addEventListener("click", onCancel);
   });
 }
 
+// Esta función ya no se usa directamente, la lógica está en scanLoop y processSavedProducts
+// Se mantiene por compatibilidad pero no hace nada
 async function processScannedCode(code) {
-  const cleaned = String(code || "").trim();
-  if (!cleaned) {
-    toast("QR vacío o inválido.", "bad");
-    return;
-  }
-
-  setLastScan(cleaned);
-
-  const cantidad = await openQtyModal(cleaned);
-  if (cantidad == null) {
-    toast("Cancelado.", "info");
-    renderPending();
-    return;
-  }
-
-  const payload = {
-    codigo: cleaned,
-    cantidad,
-    fecha: nowIsoGuatemala(),
-  };
-
-  // Si no hay internet, se guarda en localStorage.
-  if (!navigator.onLine) {
-    addPendingMovimiento(payload);
-    renderPending();
-    toast("Guardado sin internet (pendiente).");
-    return;
-  }
-
-  // Con internet: intenta subir.
-  try {
-    toast("Subiendo…");
-    const out = await uploadMovimiento(payload);
-    if (out.ok) {
-      toast("Subido OK.");
-      // No guardamos nada en pendientes
-      savePending();
-      renderPending();
-    } else {
-      addPendingMovimiento(payload);
-      renderPending();
-      toast(`No se pudo subir (respuesta: ${String(out.text).trim().slice(0, 60) || out.status}). Guardado pendiente.`, "warn");
-    }
-  } catch (e) {
-    addPendingMovimiento(payload);
-    renderPending();
-    toast("Error de red. Guardado pendiente.", "warn");
-  }
+  // Función legacy - ya no se usa
 }
 
 async function retryOne(idOrCode) {
@@ -636,19 +725,35 @@ async function retryOne(idOrCode) {
 
   try {
     toast("Reintentando…");
-    const payload = {
-      codigo: item.codigo ?? item.code,
-      cantidad: item.cantidad ?? 1,
-      fecha: item.fecha ?? nowIsoGuatemala(),
-    };
-    const out = await uploadMovimiento(payload);
-    if (out.ok) {
-      pending = pending.filter((p) => (p.id || p.code) !== idOrCode);
-      savePending();
-      renderPending();
-      toast("Subido OK.");
+    
+    // Verificar si es el nuevo formato con registros array
+    if (item.registros && Array.isArray(item.registros)) {
+      const out = await uploadMovimientos(item.registros);
+      if (out.ok) {
+        pending = pending.filter((p) => (p.id || p.code) !== idOrCode);
+        savePending();
+        renderPending();
+        toast("Subido OK.");
+      } else {
+        toast(`Falló (respuesta: ${String(out.text).trim().slice(0, 60) || out.status}).`, "warn");
+      }
     } else {
-      toast(`Falló (respuesta: ${String(out.text).trim().slice(0, 60) || out.status}).`, "warn");
+      // Formato antiguo (compatibilidad) - convertir a array
+      const registros = [{
+        codigo: item.codigo ?? item.code,
+        cantidad: item.cantidad ?? 1,
+        fecha: item.fecha ?? nowIsoGuatemala(),
+        precio_manual: 0,
+      }];
+      const out = await uploadMovimientos(registros);
+      if (out.ok) {
+        pending = pending.filter((p) => (p.id || p.code) !== idOrCode);
+        savePending();
+        renderPending();
+        toast("Subido OK.");
+      } else {
+        toast(`Falló (respuesta: ${String(out.text).trim().slice(0, 60) || out.status}).`, "warn");
+      }
     }
   } catch {
     toast("Error de red al reintentar.", "warn");
@@ -771,9 +876,28 @@ async function scanLoop() {
     const codes = await det.detect(scanCanvas);
     if (codes && codes.length) {
       const raw = codes[0]?.rawValue || "";
-      scanning = false;
-      closeScanner();
-      await processScannedCode(raw);
+      
+      // Parsear el QR
+      const parsedProduct = parseQRCode(raw);
+      if (!parsedProduct) {
+        toast("Formato de QR inválido. Debe tener formato: codigo*nombre*cantidad*precio", "bad");
+        scanLoopHandle = requestAnimationFrame(scanLoop);
+        return;
+      }
+
+      // Agregar el producto a la lista actual con cantidad inicial 1
+      parsedProduct.cantidad = 1;
+      parsedProduct.precioManual = 0;
+      currentProducts.push(parsedProduct);
+      
+      setLastScan(raw);
+      toast(`Producto agregado: ${parsedProduct.nombre}`, "info");
+      
+      // Actualizar contador de productos escaneados
+      updateScannedCount();
+      
+      // Continuar escaneando para permitir múltiples productos
+      scanLoopHandle = requestAnimationFrame(scanLoop);
       return;
     }
   } catch (e) {
@@ -783,7 +907,32 @@ async function scanLoop() {
   scanLoopHandle = requestAnimationFrame(scanLoop);
 }
 
+function updateScannedCount() {
+  if (el.scannedCount) {
+    el.scannedCount.textContent = String(currentProducts.length);
+  }
+  if (el.btnFinishScanning) {
+    el.btnFinishScanning.style.display = currentProducts.length > 0 ? "" : "none";
+  }
+  
+  // Actualizar lista de productos escaneados
+  if (el.scannedProductsList && el.scannedProductsContent) {
+    if (currentProducts.length > 0) {
+      el.scannedProductsList.style.display = "";
+      el.scannedProductsContent.innerHTML = currentProducts
+        .map((p, i) => `<div style="padding: 4px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.1);">${i + 1}. ${escapeHtml(p.nombre)} - Q${p.precioUnitario.toFixed(2)}</div>`)
+        .join("");
+    } else {
+      el.scannedProductsList.style.display = "none";
+    }
+  }
+}
+
 async function openScanner() {
+  // Limpiar productos anteriores al abrir el escáner
+  currentProducts = [];
+  updateScannedCount();
+  
   el.scannerModal.classList.add("modal--open");
   el.scannerModal.setAttribute("aria-hidden", "false");
 
@@ -798,7 +947,7 @@ async function openScanner() {
     el.scannerHelp.textContent = "Iniciando cámara…";
     await startCamera();
     enableTorchButtonIfPossible();
-    el.scannerHelp.textContent = "Apunta al código QR dentro del recuadro.";
+    el.scannerHelp.textContent = "Apunta al código QR dentro del recuadro. Escanea todos los productos que necesites.";
     scanning = true;
     scanLoopHandle = requestAnimationFrame(scanLoop);
   } catch (e) {
@@ -808,10 +957,69 @@ async function openScanner() {
   }
 }
 
-function closeScanner() {
+async function closeScanner() {
   stopCamera();
   el.scannerModal.classList.remove("modal--open");
   el.scannerModal.setAttribute("aria-hidden", "true");
+  
+  // Si hay productos escaneados, abrir el modal de productos
+  if (currentProducts.length > 0) {
+    await processSavedProducts();
+  }
+}
+
+async function processSavedProducts() {
+  if (currentProducts.length === 0) return;
+  
+  // Abrir el modal de productos
+  const result = await openProductsModal();
+  
+  if (result == null) {
+    // Usuario canceló, limpiar productos
+    currentProducts = [];
+    toast("Cancelado.", "info");
+    renderPending();
+    return;
+  }
+
+  // Preparar el array de registros para enviar
+  const fecha = nowIsoGuatemala();
+  const registros = currentProducts.map(p => ({
+    codigo: p.codigo,
+    cantidad: p.cantidad,
+    fecha: fecha,
+    precio_manual: p.precioManual || 0,
+  }));
+
+  // Limpiar productos actuales
+  currentProducts = [];
+
+  // Si no hay internet, se guarda en localStorage.
+  if (!navigator.onLine) {
+    addPendingMovimientos(registros);
+    renderPending();
+    toast("Guardado sin internet (pendiente).");
+    return;
+  }
+
+  // Con internet: intenta subir.
+  try {
+    toast("Subiendo…");
+    const out = await uploadMovimientos(registros);
+    if (out.ok) {
+      toast("Subido OK.");
+      savePending();
+      renderPending();
+    } else {
+      addPendingMovimientos(registros);
+      renderPending();
+      toast(`No se pudo subir (respuesta: ${String(out.text).trim().slice(0, 60) || out.status}). Guardado pendiente.`, "warn");
+    }
+  } catch (e) {
+    addPendingMovimientos(registros);
+    renderPending();
+    toast("Error de red. Guardado pendiente.", "warn");
+  }
 }
 
 /* ========= Ventas ========= */
@@ -1065,9 +1273,33 @@ el.modeVentas?.addEventListener("click", () => setMode("ventas"));
 el.modeDevoluciones?.addEventListener("click", () => setMode("devoluciones"));
 
 el.btnOpenScanner.addEventListener("click", openScanner);
-el.scannerBackdrop.addEventListener("click", closeScanner);
-el.btnCloseScanner.addEventListener("click", closeScanner);
-el.btnStopCamera.addEventListener("click", closeScanner);
+el.scannerBackdrop.addEventListener("click", () => {
+  if (currentProducts.length > 0) {
+    const confirm = window.confirm(`Tienes ${currentProducts.length} producto(s) escaneado(s). ¿Deseas cancelar sin guardar?`);
+    if (!confirm) return;
+    currentProducts = [];
+  }
+  closeScanner();
+});
+el.btnCloseScanner.addEventListener("click", () => {
+  if (currentProducts.length > 0) {
+    const confirm = window.confirm(`Tienes ${currentProducts.length} producto(s) escaneado(s). ¿Deseas cancelar sin guardar?`);
+    if (!confirm) return;
+    currentProducts = [];
+  }
+  closeScanner();
+});
+el.btnStopCamera.addEventListener("click", () => {
+  if (currentProducts.length > 0) {
+    const confirm = window.confirm(`Tienes ${currentProducts.length} producto(s) escaneado(s). ¿Deseas cancelar sin guardar?`);
+    if (!confirm) return;
+    currentProducts = [];
+  }
+  stopCamera();
+  el.scannerModal.classList.remove("modal--open");
+  el.scannerModal.setAttribute("aria-hidden", "true");
+});
+el.btnFinishScanning?.addEventListener("click", closeScanner);
 
 el.btnToggleFlash.addEventListener("click", async () => {
   try {
