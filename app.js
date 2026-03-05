@@ -209,9 +209,19 @@ const el = {
   btnVentaCancel: document.getElementById("btnVentaCancel"),
   btnVentaSave: document.getElementById("btnVentaSave"),
   btnAgregarProducto: document.getElementById("btnAgregarProducto"),
+  btnAgregarContainer: document.getElementById("btnAgregarContainer"),
   productsTableBody: document.getElementById("productsTableBody"),
   totalGeneral: document.getElementById("totalGeneral"),
+  totalGeneralContainer: document.getElementById("totalGeneralContainer"),
   emptyRow: document.getElementById("emptyRow"),
+  tablaContainer: document.getElementById("tablaContainer"),
+  ventaEstado: document.getElementById("ventaEstado"),
+  estadoCargando: document.getElementById("estadoCargando"),
+  estadoExito: document.getElementById("estadoExito"),
+  estadoError: document.getElementById("estadoError"),
+  mensajeError: document.getElementById("mensajeError"),
+  btnFinalizar: document.getElementById("btnFinalizar"),
+  btnReintentarGuardar: document.getElementById("btnReintentarGuardar"),
   
   productoEncontradoModal: document.getElementById("productoEncontradoModal"),
   productoEncontradoBackdrop: document.getElementById("productoEncontradoBackdrop"),
@@ -628,52 +638,176 @@ function actualizarTotales() {
 
 // Funciones antiguas eliminadas - ahora usamos renderTablaProductos
 
+/* ========= Estados de Venta ========= */
+function mostrarEstadoVenta(estado) {
+  // Ocultar botón agregar, tabla y total general
+  if (el.btnAgregarContainer) el.btnAgregarContainer.style.display = "none";
+  if (el.tablaContainer) el.tablaContainer.style.display = "none";
+  if (el.totalGeneralContainer) el.totalGeneralContainer.style.display = "none";
+  if (el.ventaEstado) el.ventaEstado.style.display = "none";
+  if (el.estadoCargando) el.estadoCargando.style.display = "none";
+  if (el.estadoExito) el.estadoExito.style.display = "none";
+  if (el.estadoError) el.estadoError.style.display = "none";
+  
+  // Mostrar el estado solicitado
+  if (el.ventaEstado) el.ventaEstado.style.display = "block";
+  
+  if (estado === "cargando" && el.estadoCargando) {
+    el.estadoCargando.style.display = "block";
+  } else if (estado === "exito" && el.estadoExito) {
+    el.estadoExito.style.display = "block";
+  } else if (estado === "error" && el.estadoError) {
+    el.estadoError.style.display = "block";
+  }
+}
+
+function ocultarEstadoVenta() {
+  if (el.btnAgregarContainer) el.btnAgregarContainer.style.display = "";
+  if (el.tablaContainer) el.tablaContainer.style.display = "";
+  if (el.totalGeneralContainer) el.totalGeneralContainer.style.display = "";
+  if (el.ventaEstado) el.ventaEstado.style.display = "none";
+}
+
+function bloquearBotonesGuardar(bloquear) {
+  if (el.btnVentaSave) {
+    el.btnVentaSave.disabled = bloquear;
+    if (bloquear) {
+      el.btnVentaSave.textContent = "Guardando...";
+    } else {
+      el.btnVentaSave.textContent = "Guardar Venta";
+    }
+  }
+  if (el.btnAgregarProducto) {
+    el.btnAgregarProducto.disabled = bloquear;
+  }
+}
+
 /* ========= Guardar Venta ========= */
+let registrosPendientes = null; // Para poder reintentar
+
 async function guardarVenta() {
   if (currentProducts.length === 0) {
     toast("No hay productos para guardar", "warn");
     return;
   }
   
+  // Confirmar antes de guardar
+  const confirmar = window.confirm(`¿Estás seguro de guardar esta venta con ${currentProducts.length} producto(s)?`);
+  if (!confirmar) {
+    return;
+  }
+  
   // Preparar el array de registros para enviar
   const fecha = nowIsoGuatemala();
-  const registros = currentProducts.map(p => ({
+  registrosPendientes = currentProducts.map(p => ({
     codigo: p.codigo,
     cantidad: p.cantidad,
     fecha: fecha,
     precio_manual: p.precioManual || 0,
   }));
 
+  // Bloquear botones y mostrar estado de carga
+  bloquearBotonesGuardar(true);
+  mostrarEstadoVenta("cargando");
+
   // Si no hay internet, se guarda en localStorage.
   if (!navigator.onLine) {
-    addPendingMovimientos(registros);
+    addPendingMovimientos(registrosPendientes);
     renderPending();
+    mostrarEstadoVenta("exito");
+    bloquearBotonesGuardar(false);
     toast("Guardado sin internet (pendiente).");
-    cerrarModalVenta();
     return;
   }
 
   // Con internet: intenta subir.
   try {
-    toast("Subiendo venta…");
-    const out = await uploadMovimientos(registros);
+    const out = await uploadMovimientos(registrosPendientes);
     if (out.ok) {
-      toast("✓ Venta guardada exitosamente");
-      cerrarModalVenta();
+      // Éxito
+      mostrarEstadoVenta("exito");
       savePending();
       renderPending();
+      registrosPendientes = null; // Limpiar después de éxito
     } else {
-      addPendingMovimientos(registros);
+      // Error
+      const mensaje = String(out.text).trim().slice(0, 100) || `Error ${out.status}`;
+      if (el.mensajeError) {
+        el.mensajeError.textContent = mensaje;
+      }
+      mostrarEstadoVenta("error");
+      // Guardar como pendiente también
+      addPendingMovimientos(registrosPendientes);
       renderPending();
-      cerrarModalVenta();
-      toast(`No se pudo subir. Guardado como pendiente.`, "warn");
     }
   } catch (e) {
-    addPendingMovimientos(registros);
+    // Error de red
+    if (el.mensajeError) {
+      el.mensajeError.textContent = "Error de conexión. Verifica tu internet.";
+    }
+    mostrarEstadoVenta("error");
+    // Guardar como pendiente también
+    addPendingMovimientos(registrosPendientes);
     renderPending();
-    cerrarModalVenta();
-    toast("Error de red. Guardado como pendiente.", "warn");
   }
+  
+  bloquearBotonesGuardar(false);
+}
+
+async function reintentarGuardar() {
+  if (!registrosPendientes || registrosPendientes.length === 0) {
+    toast("No hay venta pendiente para reintentar", "warn");
+    return;
+  }
+  
+  // Bloquear botones y mostrar carga
+  bloquearBotonesGuardar(true);
+  mostrarEstadoVenta("cargando");
+
+  if (!navigator.onLine) {
+    toast("No hay internet. La venta quedará como pendiente.", "warn");
+    mostrarEstadoVenta("error");
+    if (el.mensajeError) {
+      el.mensajeError.textContent = "Sin conexión a internet";
+    }
+    bloquearBotonesGuardar(false);
+    return;
+  }
+
+  try {
+    const out = await uploadMovimientos(registrosPendientes);
+    if (out.ok) {
+      // Éxito
+      mostrarEstadoVenta("exito");
+      savePending();
+      renderPending();
+      registrosPendientes = null; // Limpiar después de éxito
+    } else {
+      // Error
+      const mensaje = String(out.text).trim().slice(0, 100) || `Error ${out.status}`;
+      if (el.mensajeError) {
+        el.mensajeError.textContent = mensaje;
+      }
+      mostrarEstadoVenta("error");
+    }
+  } catch (e) {
+    // Error de red
+    if (el.mensajeError) {
+      el.mensajeError.textContent = "Error de conexión. Verifica tu internet.";
+    }
+    mostrarEstadoVenta("error");
+  }
+  
+  bloquearBotonesGuardar(false);
+}
+
+function finalizarVenta() {
+  // Limpiar todo y cerrar modal
+  currentProducts = [];
+  registrosPendientes = null;
+  ocultarEstadoVenta();
+  cerrarModalVenta();
+  toast("Venta finalizada. Puedes crear una nueva venta.", "info");
 }
 
 async function retryOne(idOrCode) {
@@ -873,6 +1007,9 @@ async function scanLoop() {
 /* ========= Modal de Venta ========= */
 function abrirModalVenta() {
   currentProducts = [];
+  registrosPendientes = null;
+  ocultarEstadoVenta();
+  bloquearBotonesGuardar(false);
   renderTablaProductos();
   
   el.ventaModal.classList.add("modal--open");
@@ -883,6 +1020,9 @@ function cerrarModalVenta() {
   el.ventaModal.classList.remove("modal--open");
   el.ventaModal.setAttribute("aria-hidden", "true");
   currentProducts = [];
+  registrosPendientes = null;
+  ocultarEstadoVenta();
+  bloquearBotonesGuardar(false);
 }
 
 function renderTablaProductos() {
@@ -1361,6 +1501,8 @@ el.btnVentaCancel?.addEventListener("click", cerrarModalVenta);
 el.ventaBackdrop?.addEventListener("click", cerrarModalVenta);
 el.btnVentaSave?.addEventListener("click", guardarVenta);
 el.btnAgregarProducto?.addEventListener("click", openScanner);
+el.btnFinalizar?.addEventListener("click", finalizarVenta);
+el.btnReintentarGuardar?.addEventListener("click", reintentarGuardar);
 
 // Scanner
 el.scannerBackdrop?.addEventListener("click", closeScanner);
