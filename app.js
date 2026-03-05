@@ -216,6 +216,7 @@ const el = {
   emptyRow: document.getElementById("emptyRow"),
   tablaContainer: document.getElementById("tablaContainer"),
   ventaEstado: document.getElementById("ventaEstado"),
+  ventaAccionesContainer: document.getElementById("ventaAccionesContainer"),
   estadoCargando: document.getElementById("estadoCargando"),
   estadoExito: document.getElementById("estadoExito"),
   estadoError: document.getElementById("estadoError"),
@@ -640,10 +641,11 @@ function actualizarTotales() {
 
 /* ========= Estados de Venta ========= */
 function mostrarEstadoVenta(estado) {
-  // Ocultar botón agregar, tabla y total general
+  // Ocultar botón agregar, tabla, total general y botones Cancelar/Guardar
   if (el.btnAgregarContainer) el.btnAgregarContainer.style.display = "none";
   if (el.tablaContainer) el.tablaContainer.style.display = "none";
   if (el.totalGeneralContainer) el.totalGeneralContainer.style.display = "none";
+  if (el.ventaAccionesContainer) el.ventaAccionesContainer.style.display = "none";
   if (el.ventaEstado) el.ventaEstado.style.display = "none";
   if (el.estadoCargando) el.estadoCargando.style.display = "none";
   if (el.estadoExito) el.estadoExito.style.display = "none";
@@ -665,6 +667,7 @@ function ocultarEstadoVenta() {
   if (el.btnAgregarContainer) el.btnAgregarContainer.style.display = "";
   if (el.tablaContainer) el.tablaContainer.style.display = "";
   if (el.totalGeneralContainer) el.totalGeneralContainer.style.display = "";
+  if (el.ventaAccionesContainer) el.ventaAccionesContainer.style.display = "";
   if (el.ventaEstado) el.ventaEstado.style.display = "none";
 }
 

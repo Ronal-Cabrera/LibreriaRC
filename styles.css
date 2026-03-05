@@ -471,7 +471,7 @@ video{
   color: var(--text);
 }
 
-/* Toast */
+/* Toast: fondo oscuro fijo, texto claro para que siempre se lea */
 .toast{
   position:fixed;
   left:50%;
@@ -480,9 +480,9 @@ video{
   max-width: min(720px, calc(100% - 24px));
   padding:12px 14px;
   border-radius: 14px;
-  border:1px solid var(--line);
+  border:1px solid rgba(255,255,255,.12);
   background: rgba(10,16,30,.92);
-  color: var(--text);
+  color: #e4e6eb;
   box-shadow: var(--shadow);
   opacity:0;
   pointer-events:none;
